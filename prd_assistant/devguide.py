@@ -111,6 +111,9 @@ def build(facts, slice1_gate, roles, rules, errors, gate, repo_name, today):
     rc = roles["counts"]
     L += [f"- Roles: {rc['read']} read, {rc['public']} public, {rc['undeclared']} undeclared, {rc['not_read']} not read, "
           f"of {rc['routes']} routes",
+          f"- Screens joined to endpoints: {sum(1 for v in roles['joined'].values() if v)} of {len(roles['joined'])} "
+          "(a screen is joined when a call to an endpoint is found in its files or in files they import; typed API "
+          "clients such as api.payroll.list() are not recognised, so role and limit mismatches are only checked for joined screens)",
           f"- Request fields: {rules['counts']['read']} of {rules['counts']['takes_input']} routes that take input were read",
           f"- Error messages: {errors['sites']['attached']} of {errors['sites']['total']} raise sites were attached to an endpoint",
           "- Not read: hand-written input checks, messages more than one call deep, roles set in code paths other than "

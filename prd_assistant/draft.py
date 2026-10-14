@@ -214,6 +214,7 @@ def dev_prepare(repo, out_dir, today=None):
                "messages": {"count": errors["counts"]["messages"], "sites_total": errors["sites"]["total"],
                             "sites_attached": errors["sites"]["attached"]},
                "mismatches": {"roles": len(roles["mismatches"]), "rules": len(rules["mismatches"])},
+               "screens": {"total": len(roles["joined"]), "joined": sum(1 for v in roles["joined"].values() if v)},
                "verdict": gate["verdict"]}
     _write_json(ddir / "dev_summary.json", summary)
     return summary

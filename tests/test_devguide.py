@@ -77,6 +77,9 @@ class BuildTests(unittest.TestCase):
             self.assertIn("{{slot:" + key + "}}", self.text)
         self.assertEqual(self.text.count("{{slot:"), len(keys))   # hostile "{{slot:overview}}" is neutralised
 
+    def test_trust_header_says_how_many_screens_were_joined_to_endpoints(self):
+        self.assertIn("Screens joined to endpoints: 1 of 1", self.text)
+
     def test_slot_shape(self):
         spec = self.template["slots"][1]
         self.assertEqual((spec["audience"], spec["banned_terms"]), ("developer", []))

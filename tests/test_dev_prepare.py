@@ -64,6 +64,7 @@ class DevPrepareTests(unittest.TestCase):
                 self.assertTrue((out / "dev" / name).is_file(), name)
             self.assertEqual(json.loads((out / "dev" / "manifest.json").read_text())["kind"], "dev")
             self.assertEqual(summary["roles"], {"read": 2, "public": 0, "undeclared": 0, "not_read": 0})
+            self.assertEqual(summary["screens"], {"total": 0, "joined": 0})
             roles = json.loads((out / "dev" / "roles.json").read_text())
             self.assertEqual(roles["endpoints"]["r-calc"]["roles"], ["ADMIN"])
             msgs = json.loads((out / "dev" / "error_messages.json").read_text())["messages"]
