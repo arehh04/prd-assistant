@@ -1,0 +1,5 @@
+{
+  "route_agreement": {"pass": 0.05, "warn": 0.20},
+  "screen_agreement": {"pass": 0.05, "warn": 0.20},
+  "language_coverage": {"warn": 0.90, "fail": 0.60}
+}
