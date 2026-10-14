@@ -1,4 +1,5 @@
 """Link HTTP calls found in tests and frontend code to extracted routes."""
+import bisect
 import re
 from pathlib import Path
 
@@ -6,6 +7,7 @@ from . import count, groups, paths
 from .mask import line_of, mask
 
 WILD = "{}"
+MAX_FILE_BYTES = 2_000_000
 BUCKETS = ("matched", "ambiguous", "unmatched", "dynamic")
 INTERP_RE = re.compile(r"\$\{[^}]*\}|\{\$[^}]*\}|\{[^}]*\}")
 
@@ -131,6 +133,11 @@ def parse_calls(text, rel, side, language):
     hash_comments = language in ("py", "php")
     code = mask(text, hash_comments=hash_comments, blank_strings=False)
     blanked = mask(text, hash_comments=hash_comments)
+    starts = [0] + [m.end() for m in re.finditer("\n", code)]
+
+    def line_at(pos):
+        return bisect.bisect_right(starts, pos)
+
     heads = []  # (start, args_pos, method, sure) ; sure = unambiguously an HTTP call
     if language in ("py", "js"):
         heads += [(m.start(), m.end(), m.group(1).upper(), False) for m in GENERIC_RE.finditer(code)]
@@ -164,16 +171,18 @@ def parse_calls(text, rel, side, language):
         if method is None:
             found = METHOD_OPT_RE.search(_call_text(blanked, code, args_pos - 1))
             method = found.group(1).upper() if found else None
-        calls.append({"side": side, "file": rel, "line": line_of(code, start),
+        calls.append({"side": side, "file": rel, "line": line_at(start),
                       "method": method, "raw": path, "dynamic": dynamic})
         spans.append((start, args_pos))
 
     lines = code.split("\n")
     ignored = []
+    span_starts = [s for s, _ in spans]
     for m in LOOSE_RE.finditer(code):
-        if any(s < m.end() and m.start() < e for s, e in spans):
+        i = bisect.bisect_left(span_starts, m.end()) - 1
+        if any(0 <= j < len(spans) and spans[j][1] > m.start() for j in (i, i - 1)):
             continue
-        number = line_of(code, m.start())
+        number = line_at(m.start())
         ignored.append({"file": rel, "line": number, "text": lines[number - 1].strip()[:120]})
     return calls, ignored
 
@@ -207,6 +216,9 @@ def collect_calls(repo_root, side):
         language = language_of(rel)
         if language is None:
             continue
+        if full.stat().st_size > MAX_FILE_BYTES:
+            count.mark_unreadable(full)
+            continue
         found, skipped = parse_calls(count.read_text(full), rel, side, language)
         calls += found
         ignored += skipped
@@ -218,6 +230,7 @@ def link(repo_root, facts):
     route_segs = {r["id"]: r["segs"] for r in route_list}
     prefix = tuple(groups.global_prefix([r["path"] for r in facts["routes"]]))
     out = {"schema": 1, "tests": None, "frontend": None, "calls": [],
+           "root_level_frontend": "" in frontend_roots(repo_root),
            "routes": {r["id"]: {"http_tests": [], "frontend": []} for r in facts["routes"]}}
     for side in ("tests", "frontend"):
         calls, ignored = collect_calls(repo_root, side)

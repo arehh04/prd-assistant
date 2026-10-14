@@ -3,9 +3,13 @@ import re
 
 NEEDS = "NEEDS HUMAN INPUT"
 CITE_RE = re.compile(r"\[([^\]\s:]+):(\d+)\]")
-QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”')
+QUOTE_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
 NUM_RE = re.compile(r"\d+")
-STRUCTURE_RE = re.compile(r"(?m)^\s*(#|\||[-*+]\s|\d+\.\s|```)")
+STRUCTURE_RE = re.compile(r"(?m)^\s*(#|\||>|---|===|[-*+]\s|\d+[.)]\s|```)")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")  # newlines, CR, tabs, C1 and line separators
+MARKUP_RE = re.compile(r"[<>`]|!\[|\]\(")  # HTML, images, links, code spans
+BAD_QUOTE_RE = re.compile(r"[‘«»「」]")  # quote forms the quote check does not understand
+MAX_CHARS = 2000
 
 
 def _norm(text):
@@ -25,8 +29,12 @@ def _check_slot(key, text, spec):
         if not spec["may_be_needs_human_input"]:
             errors.append(_err(key, "citation", "NEEDS HUMAN INPUT is not allowed for this slot"))
         return errors
-    if "{{" in stripped or "\n\n" in stripped or STRUCTURE_RE.search(stripped):
-        errors.append(_err(key, "form", "must be one plain paragraph: no Markdown structure and no {{ }}"))
+    if ("{{" in stripped or CONTROL_RE.search(stripped) or STRUCTURE_RE.search(stripped)
+            or MARKUP_RE.search(stripped) or BAD_QUOTE_RE.search(stripped)):
+        errors.append(_err(key, "form", "must be one plain line of text: no line breaks, Markdown, HTML, links, "
+                                         "code spans, unusual quote marks or {{ }}"))
+    if len(stripped) > MAX_CHARS:
+        errors.append(_err(key, "length", f"{len(stripped)} characters, limit {MAX_CHARS}"))
     words = len(stripped.split())
     if words > spec["max_words"]:
         errors.append(_err(key, "length", f"{words} words, limit {spec['max_words']}"))

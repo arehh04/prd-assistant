@@ -30,8 +30,19 @@ def slot_ref(key):
     return "{{slot:" + key + "}}"
 
 
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+OPEN_BRACE_RE = re.compile(r"\{(?=\{)")
+CLOSE_BRACE_RE = re.compile(r"\}(?=\})")
+
+
+def esc(text):
+    """Neutralize repo-controlled text: no control characters, no backticks, no adjacent braces."""
+    s = CONTROL_RE.sub(" ", str(text)).replace("`", "'")
+    return CLOSE_BRACE_RE.sub("}\u200b", OPEN_BRACE_RE.sub("{\u200b", s))
+
+
 def cell(text):
-    return str(text).replace("|", "\\|")
+    return esc(text).replace("|", "\\|")
 
 
 def digits(*texts):
@@ -96,7 +107,7 @@ def _route_row(route, link):
     handler = route["handler"]["name"] if route.get("handler") else "—"
     http_cell = "none" if not http else f"{len(http)} call(s) in {len({e['file'] for e in http})} file(s)"
     direct_cell = "none" if not direct else f"{len(direct)} file(s)"
-    return (f"| {route['method']} | `{cell(route['path'])}` | `{route['source']}` | {cell(handler)} | "
+    return (f"| {cell(route['method'])} | `{cell(route['path'])}` | `{cell(route['source'])}` | {cell(handler)} | "
             f"{http_cell} | {direct_cell} | {'detected' if front else 'not detected'} |")
 
 
@@ -125,14 +136,18 @@ def build(facts, gate, links, docs, repo_name, today):
     meta = facts["meta"]
     slots, L = [], []
 
-    L += [f"# PRD draft: {repo_name}", "", f"_Draft generated {today} from code facts. Review before use._", "",
+    L += [f"# PRD draft: {esc(repo_name)}", "", f"_Draft generated {today} from code facts. Review before use._", "",
           "## Trust header", "", f"- Gate verdict: **{gate['verdict']}**"]
     L += [f"  - {c['name']}: {c['status']} ({check_note(c)})" for c in gate["checks"]]
     L += [f"- CodeGraph {meta['codegraph_version']} (extraction {meta['extraction_version']}), "
-          f"indexed at commit `{meta['indexed_at_commit']}`",
+          f"indexed at commit `{esc(meta['indexed_at_commit'])}`",
           f"- Feature-group prefix: `/{'/'.join(prefix)}`" if prefix else "- Feature-group prefix: none",
           "- " + _totals_line("HTTP test calls", links["tests"]["totals"]),
-          "- " + _totals_line("Frontend calls", links["frontend"]["totals"]), ""]
+          "- " + _totals_line("Frontend calls", links["frontend"]["totals"])]
+    if links.get("root_level_frontend"):
+        L.append("- WARNING: a router package sits at the repository root, so the frontend and test columns "
+                 "may mix client and server code.")
+    L.append("")
 
     L += ["## 1. Problem", ""]
     evidence, hidden = select_problem_evidence(docs)
@@ -155,7 +170,7 @@ def build(facts, gate, links, docs, repo_name, today):
     for g in rgroups:
         st = group_stats(g, link_routes)
         slots.append(_purpose_slot(g, st))
-        L += [f"### {g['id']} `{g['key']}` ({st['routes']} routes)", "", slot_ref("purpose." + g["id"]), "",
+        L += [f"### {g['id']} `{esc(g['key'])}` ({st['routes']} routes)", "", slot_ref("purpose." + g["id"]), "",
               "| Method | Path | Source | Handler | HTTP tests | Direct tests | Frontend |",
               "|---|---|---|---|---|---|---|"]
         L += [_route_row(r, link_routes.get(r["id"], {})) for r in g["routes"]]
@@ -172,7 +187,7 @@ def build(facts, gate, links, docs, repo_name, today):
         L += ["### Screens", "", slot_ref("screens_overview"), "",
               "| Group | Path | Source | Incoming navigation |", "|---|---|---|---|"]
         for g in sgroups:
-            L += [f"| {g['id']} `{g['key']}` | `{cell(s['path'])}` | `{s['source']}` | {incoming.get(s['id'], 0)} |"
+            L += [f"| {g['id']} `{esc(g['key'])}` | `{cell(s['path'])}` | `{cell(s['source'])}` | {incoming.get(s['id'], 0)} |"
                   for s in g["screens"]]
         L.append("")
 
@@ -184,8 +199,8 @@ def build(facts, gate, links, docs, repo_name, today):
         if not untested:
             continue
         any_untested = True
-        L.append(f"- {g['id']} `{g['key']}`: {len(untested)} of {len(g['routes'])} routes")
-        L += [f"  - {r['method']} `{cell(r['path'])}` (`{r['source']}`)" for r in untested[:20]]
+        L.append(f"- {g['id']} `{esc(g['key'])}`: {len(untested)} of {len(g['routes'])} routes")
+        L += [f"  - {cell(r['method'])} `{cell(r['path'])}` (`{cell(r['source'])}`)" for r in untested[:20]]
         if len(untested) > 20:
             L.append(f"  - ... and {len(untested) - 20} more")
     if not any_untested:
@@ -193,16 +208,17 @@ def build(facts, gate, links, docs, repo_name, today):
     reached = {n["to_id"] for n in facts["navigation"]}
     orphans = [s for s in facts["screens"] if s["id"] not in reached]
     L += ["", "### Screens nothing navigates to", ""]
-    L += [f"- `{cell(s['path'])}` (`{s['source']}`)" for s in orphans[:20]] or ["- none"]
+    L += [f"- `{cell(s['path'])}` (`{cell(s['source'])}`)" for s in orphans[:20]] or ["- none"]
     by_reason = Counter(e["reason"] for e in facts["excluded"])
     L += ["", "### Excluded from the facts", ""]
-    L += [f"- {reason}: {n}" for reason, n in sorted(by_reason.items())] or ["- none"]
+    L += [f"- {esc(reason)}: {n}" for reason, n in sorted(by_reason.items())] or ["- none"]
     unsupported = [u for a in facts.get("adapters", {}).values() for u in a.get("unsupported", [])]
     L += ["", "### Constructs the extractor could not read", ""]
-    L += [f"- `{u['file']}:{u['line']}` `{u['text']}`" for u in unsupported[:20]] or ["- none"]
+    L += [f"- `{esc(u['file'])}:{esc(u['line'])}` `{esc(u['text'])}`" for u in unsupported[:20]] or ["- none"]
     bad = [c for c in links["calls"] if c["side"] == "tests" and c["bucket"] in ("ambiguous", "unmatched")]
     L += ["", "### Test calls that could not be linked to one route", ""]
-    L += [f"- {c['bucket']}: {c['method'] or '?'} `{c['raw']}` (`{c['file']}:{c['line']}`)" for c in bad[:20]] or ["- none"]
+    L += [f"- {esc(c['bucket'])}: {esc(c['method'] or '?')} `{esc(c['raw'])}` (`{esc(c['file'])}:{esc(c['line'])}`)"
+          for c in bad[:20]] or ["- none"]
     if len(bad) > 20:
         L.append(f"- ... and {len(bad) - 20} more")
     warn = [c for c in gate["checks"] if c["status"] in ("WARN", "FAIL")]
@@ -217,7 +233,7 @@ def build(facts, gate, links, docs, repo_name, today):
     total = Counter()
     for g in rgroups:
         st = group_stats(g, link_routes)
-        L.append(f"| {g['id']} `{g['key']}` | {st['routes']} | {st['http']} | {st['direct']} | {st['both']} | "
+        L.append(f"| {g['id']} `{esc(g['key'])}` | {st['routes']} | {st['http']} | {st['direct']} | {st['both']} | "
                  f"{st['neither']} | {st['frontend']} |")
         for k in ("routes", "http", "direct", "both", "neither", "frontend"):
             total[k] += st[k]

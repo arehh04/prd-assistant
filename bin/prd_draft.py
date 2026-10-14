@@ -45,6 +45,9 @@ def main(argv=None):
     except draft.GateFailed as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except draft.TamperError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 3
     except assemble.AssembleError as exc:
         print(json.dumps(exc.errors, indent=2))
         print(f"error: {exc}", file=sys.stderr)

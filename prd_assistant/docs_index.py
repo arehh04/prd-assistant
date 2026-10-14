@@ -4,7 +4,7 @@ from pathlib import Path
 
 from . import count
 
-AGENT_FILES = {"agents.md", "claude.md", "gemini.md"}
+AGENT_FILE_RE = re.compile(r"^(claude|agents|gemini)(\.[\w.\-]+)?\.md$|^copilot-instructions\.md$", re.I)
 MAX_BYTES = 2_000_000
 EXCERPT_LINES = 12
 EXCERPT_CHARS = 1200
@@ -17,7 +17,7 @@ def _doc_files(root):
         parts = rel.split("/")
         if len(parts) > 1 and parts[0] != "docs":
             continue
-        if Path(rel).name.lower() in AGENT_FILES:
+        if AGENT_FILE_RE.match(Path(rel).name):
             continue
         if full.stat().st_size > MAX_BYTES:
             continue

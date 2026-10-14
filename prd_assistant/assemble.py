@@ -8,7 +8,7 @@ FOOTER = (
     "\n---\n\n"
     "_How this draft was made: tables, counts and citations were computed from the code by scripts. "
     "The prose slots were written by a model and checked by a lint script. "
-    "Verified: every citation points at a real source, every digit comes from the evidence, every quote is verbatim. "
+    "Verified: every citation points at a real source, every digit comes from the evidence, every double-quoted string is verbatim. "
     "NOT verified: whether the prose is accurate or well judged, and spelled-out numbers. A person must review it._\n"
 )
 
@@ -23,7 +23,12 @@ def assemble(scaffold_text, slots, template):
     errors = verify.verify(slots, template)
     if errors:
         raise AssembleError(errors)
-    placeholders = set(PLACEHOLDER_RE.findall(scaffold_text))
+    found = PLACEHOLDER_RE.findall(scaffold_text)
+    placeholders = set(found)
+    repeated = sorted({k for k in found if found.count(k) > 1})
+    if repeated:
+        raise AssembleError([{"slot": k, "rule": "keys", "detail": "placeholder appears more than once"}
+                             for k in repeated])
     keys = {s["key"] for s in template["slots"]}
     if placeholders != keys:
         raise AssembleError([{"slot": k, "rule": "keys", "detail": "scaffold and template disagree"}

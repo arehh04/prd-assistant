@@ -25,6 +25,10 @@ def reset_unreadable():
     _UNREADABLE.clear()
 
 
+def mark_unreadable(path):
+    _UNREADABLE.add(str(path))
+
+
 def unreadable_paths():
     return sorted(_UNREADABLE)
 
@@ -47,7 +51,7 @@ def iter_files(root, suffixes, include_tests=False):
             if not name.endswith(suffixes) or paths.is_secret_name(name):
                 continue
             full = Path(dirpath) / name
-            if not full.is_file():  # broken symlinks, FIFOs, odd entries named like source files
+            if full.is_symlink() or not full.is_file():  # symlinks may point outside the repo; also FIFOs, odd entries
                 continue
             rel = full.relative_to(root).as_posix()
             if not include_tests and paths.exclusion_reason(rel):
