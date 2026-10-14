@@ -37,15 +37,25 @@ def _parser():
     return parser
 
 
+def _load(args):
+    cache, meta, rebuilt = criteria_cache.ensure(args.repo, args.state_dir, force=(args.command == "build"))
+    bank = criteria_cache.load_bank(cache)
+    if not isinstance(bank, dict) or not all(k in bank for k in ("candidates", "counts", "groups")):
+        raise ValueError(f"the cached criteria.json in {cache} is malformed; run `build` to recreate it")
+    return cache, meta, rebuilt, bank
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
-        cache, meta, rebuilt = criteria_cache.ensure(args.repo, args.state_dir, force=(args.command == "build"))
-        bank = criteria_cache.load_bank(cache)
+        try:
+            cache, meta, rebuilt, bank = _load(args)
+        except FileNotFoundError:
+            cache, meta, rebuilt, bank = _load(args)   # a concurrent rebuild swapped the cache away: once more
     except criteria_cache.FactsUnavailable as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    except (criteria_cache.EnvError, OSError, ValueError) as exc:
+    except (criteria_cache.EnvError, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
     if rebuilt:
@@ -62,12 +72,12 @@ def main(argv=None):
             print(f"error: no candidate with id {args.id!r} in this cache (ids change when the code changes)",
                   file=sys.stderr)
             return 3
-        print(json.dumps({"meta": info, "candidate": c}, indent=1, ensure_ascii=False) if args.json
+        print(json.dumps({"meta": info, "candidate": c}, indent=1, ensure_ascii=True) if args.json
               else lookup.render_candidate(c, info), end="")
         return 0
     sel = lookup.select(bank, args.task, args.max_subjects, args.max_candidates)
     if args.json:
-        print(json.dumps(lookup.render_json(sel, info), indent=1, ensure_ascii=False))
+        print(json.dumps(lookup.render_json(sel, info), indent=1, ensure_ascii=True))
     else:
         print(lookup.render_markdown(sel, info, bank), end="")
     return 0

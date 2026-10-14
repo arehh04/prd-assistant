@@ -69,7 +69,7 @@ def age_text(built_at, now=None):
 
 def _tree_state(meta):
     if not meta.get("git"):
-        return "not a git repository (the facts are rebuilt on every run)"
+        return "not a git repository or it has no commits (the facts are rebuilt on every run)"
     return "clean" if not meta.get("changed") else f"{meta['changed']} changed files"
 
 
@@ -127,7 +127,8 @@ def render_candidate(c, meta, now=None):
     L = _header(meta, now) + [""]
     L += [f"## {c['id']} ({c['kind']}{', derived' if c['derived'] else ''})", "",
           f"Subject: {text_cell(_clip(c['subject']['label'], 300))}", "", text_cell(c["text"]), "", "Facts:", "",
-          esc(json.dumps(c["facts"], ensure_ascii=False, indent=2, default=str)[:2000]), "",
+          *[f"- {text_cell(str(k))}: {text_cell(json.dumps(v, ensure_ascii=False, default=str)[:500])}"
+            for k, v in c["facts"].items()], "",
           "Sources: " + ", ".join(f"`{cell(s)}`" for s in c["sources"]), "",
           "Trust:"] + [f"- {text_cell(_clip(t))}" for t in c["trust"]]
     return "\n".join(L) + "\n"

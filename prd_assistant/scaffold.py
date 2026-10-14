@@ -30,7 +30,7 @@ def slot_ref(key):
     return "{{slot:" + key + "}}"
 
 
-CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
 OPEN_BRACE_RE = re.compile(r"\{(?=\{)")
 CLOSE_BRACE_RE = re.compile(r"\}(?=\})")
 

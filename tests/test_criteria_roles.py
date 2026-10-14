@@ -72,7 +72,7 @@ class RoleCandidatesTests(unittest.TestCase):
         self.assertEqual({(c["subject"]["id"], c["facts"]["role"]) for c in refused}, {("r1", "WORKER")})
         c = refused[0]
         self.assertTrue(c["derived"])
-        self.assertEqual(c["text"], "Role WORKER is refused on POST /api/payroll/calculate.")
+        self.assertEqual(c["text"], "Role WORKER is not in the role list of POST /api/payroll/calculate, so it is treated as refused.")
         self.assertNotIn("403", c["text"])
         self.assertTrue(any("derived" in t for t in c["trust"]))
         self.assertTrue(any("FINANCE, ADMIN, WORKER" in t for t in c["trust"]))

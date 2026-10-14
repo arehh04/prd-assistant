@@ -112,7 +112,7 @@ def role_candidates(facts, roles):
                 if _norm_role(r) in allowed:
                     continue
                 cands.append(_cand(
-                    "role_refused", subject, f"Role {r} is refused on {label}.",
+                    "role_refused", subject, f"Role {r} is not in the role list of {label}, so it is treated as refused.",
                     {"role": r, "allowed": rec["roles"], "universe": list(everyone)}, [rec.get("source")],
                     ["derived: the roles seen on read endpoints of this stack are " + ", ".join(everyone)
                      + ", minus the roles this endpoint lists; the refusal's status and message were not read"] + trust,
