@@ -245,3 +245,121 @@ def resolve_component(screen, src, aliases, repo_root):
         result["component_file"] = files[0]["file"]
         result["status"] = "conditional" if len(cands) > 1 else "resolved"
     return result
+
+
+ATTR_RE = re.compile(r"""([A-Za-z_:][\w:\-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*(["'`])(.*?)\4\s*\})""", re.S)
+TEXT_ATTRS = {"placeholder": "placeholder", "label": "label", "title": "title", "aria-label": "title", "alt": "title"}
+ERROR_CLASS_RE = re.compile(r"destructive|error", re.I)
+CALL_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(")
+MESSAGE_NAME_RE = re.compile(r"toast|error|alert|notify|snack|warning|success", re.I)
+CODEISH_RE = re.compile(r"[a-z0-9_./:@#\-]+")
+MAX_ITEMS = 300
+
+
+def _norm(text):
+    return " ".join(text.split())
+
+
+def _has_letter(text):
+    return any(c.isalpha() for c in text)
+
+
+def _tag_kind(name):
+    low = name.lower().split(".")[-1]
+    if re.fullmatch(r"h[1-6]", low) or "title" in low or "heading" in low:
+        return "heading"
+    if low == "a" or "button" in low or "link" in low:
+        return "button"
+    if low == "label" or low.endswith("label"):
+        return "label"
+    return "text"
+
+
+def _finish(items):
+    seen, out = set(), []
+    for item in sorted(items, key=lambda i: i["line"]):
+        key = (item["kind"], item["text"])
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
+def _content_pieces(blanked, code, start):
+    """Text pieces outside braces from `start` up to the next '<' at brace depth 0."""
+    pieces, depth, piece_start, open_i = [], 0, start, start
+    for i in range(start, len(blanked)):
+        ch = blanked[i]
+        if ch == "{":
+            if depth == 0:
+                if i > piece_start:
+                    pieces.append((piece_start, code[piece_start:i]))
+                open_i = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                literal = re.fullmatch(r"(['\"`])(.*)\1", code[open_i + 1:i].strip(), re.S)
+                if literal:
+                    pieces.append((open_i + 1, literal.group(2)))
+                piece_start = i + 1
+        elif ch == "<" and depth == 0:
+            if i > piece_start:
+                pieces.append((piece_start, code[piece_start:i]))
+            return pieces
+    return pieces
+
+
+def message_items(code, blanked, line_at, rel, base=0):
+    items = []
+    for m in CALL_RE.finditer(code):
+        name = m.group(1)
+        last = name.split(".")[-1]
+        if not MESSAGE_NAME_RE.search(name):
+            continue
+        if re.match(r"(console|logger|log|Sentry)\.", name) or (last[:1].isupper() and re.search(r"(Error|Exception)$", last)):
+            continue
+        close = close_paren(blanked, m.end() - 1)
+        args = code[m.end():close]
+        for s in STRING_RE.finditer(args):
+            value = _norm(s.group(2))
+            if _has_letter(value) and not CODEISH_RE.fullmatch(value):
+                items.append({"kind": "message", "text": value, "file": rel,
+                              "line": line_at(base + m.end() + s.start())})
+    return items
+
+
+def _jsx_items(src, rel):
+    code, blanked, items = src.code, src.blanked, []
+    for m in TAG_START_RE.finditer(code):
+        name = m.group(1)
+        end = tag_end(blanked, m.end())
+        if end < 0:
+            continue
+        attrs = code[m.end():end]
+        error_ctx = False
+        for a in ATTR_RE.finditer(attrs):
+            attr, value = a.group(1), a.group(2) or a.group(3) or a.group(5) or ""
+            if attr in ("className", "class") and ERROR_CLASS_RE.search(value):
+                error_ctx = True
+            elif attr == "role" and value == "alert":
+                error_ctx = True
+            elif attr in TEXT_ATTRS and _has_letter(value):
+                items.append({"kind": TEXT_ATTRS[attr], "text": _norm(value), "file": rel,
+                              "line": src.line_at(m.end() + a.start())})
+        if blanked[end - 1] == "/":
+            continue
+        kind = "message" if error_ctx else _tag_kind(name)
+        for pos, raw in _content_pieces(blanked, code, end + 1):
+            text = _norm(raw)
+            if _has_letter(text):
+                items.append({"kind": kind, "text": text, "file": rel,
+                              "line": src.line_at(pos + len(raw) - len(raw.lstrip()))})
+    items += message_items(code, blanked, src.line_at, rel)
+    return items
+
+
+def extract_items(text, rel):
+    if Path(rel).suffix.lower() == ".vue":
+        return _vue_items(text, rel)
+    return _finish(_jsx_items(Source(text), rel))
