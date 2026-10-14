@@ -112,5 +112,30 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(ui["screens"]["s9"]["status"], "unresolved")
 
 
+class LocalComponentTests(unittest.TestCase):
+    APP = '''function OnePage() {
+  return <h1>One</h1>;
+}
+function TwoPage() {
+  return <h1>Two</h1>;
+}
+export const routes = [
+  { path: "/one", element: <OnePage /> },
+  { path: "/two", element: <TwoPage /> },
+];
+'''
+
+    def test_a_component_declared_in_the_router_only_contributes_its_own_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "web/package.json", '{"dependencies": {"react-router-dom": "7"}}')
+            write(tmp, "web/src/App.tsx", self.APP)
+            facts = {"screens": [{"id": "s1", "path": "/one", "file": "web/src/App.tsx", "line": line_of(self.APP, 'path: "/one"')},
+                                 {"id": "s2", "path": "/two", "file": "web/src/App.tsx", "line": line_of(self.APP, 'path: "/two"')}]}
+            ui = ui_text.build(tmp, facts)
+        self.assertEqual([i["text"] for i in ui["screens"]["s1"]["items"]], ["One"])
+        self.assertEqual([i["text"] for i in ui["screens"]["s2"]["items"]], ["Two"])
+        self.assertEqual(ui["screens"]["s1"]["files"], ["web/src/App.tsx"])
+
+
 if __name__ == "__main__":
     unittest.main()

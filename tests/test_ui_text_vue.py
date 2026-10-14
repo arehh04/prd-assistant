@@ -59,5 +59,13 @@ class VueItemsTests(unittest.TestCase):
         self.assertEqual(ui_text.extract_items("", "a.vue"), [])
 
 
+class VueCalibrationFindingsTests(unittest.TestCase):
+    def test_ternary_strings_in_interpolations_and_library_attributes(self):
+        text = ("<template>\n  <button>{{ busy ? 'Signing out…' : 'Log out' }}</button>\n"
+                "  <Button label=\"New\" />\n  <Column header=\"Code\" />\n</template>\n")
+        got = {(i["kind"], i["text"]) for i in ui_text.extract_items(text, "a.vue")}
+        self.assertLessEqual({("button", "Signing out…"), ("button", "Log out"), ("button", "New"), ("label", "Code")}, got)
+
+
 if __name__ == "__main__":
     unittest.main()

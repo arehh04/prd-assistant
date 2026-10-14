@@ -106,11 +106,50 @@ class ComponentTests(unittest.TestCase):
         self.assertEqual((r["status"], r["component_file"]), ("resolved", "web/src/views/admin/branches/BranchesView.vue"))
         self.assertEqual(r["title"], {"text": "Branches", "line": line_of(VUE_ROUTER, "meta:")})
 
-    def test_codegraph_link_wins(self):
-        s = self.screen(OBJECT_ROUTER, 'path: "/me"', "/me", "src/app/router.tsx",
-                        component={"name": "Other", "file": "src/pages/NewSearchPage.tsx", "line": 3})
-        r = ui_text.resolve_component(s, ui_text.Source(OBJECT_ROUTER), [], self.root)
+    def test_the_routers_own_expression_beats_a_wrong_codegraph_link(self):
+        # CodeGraph links a nested Vue route to its parent layout; the route object itself names the real view
+        aliases = [("@", Path(os.path.abspath(self.root)) / "web" / "src")]
+        s = self.screen(VUE_ROUTER, "path: 'branches'", "/admin/branches", "web/src/router/index.ts",
+                        component={"name": "AdminLayout", "file": "web/src/layouts/AdminLayout.vue", "line": 1})
+        r = ui_text.resolve_component(s, ui_text.Source(VUE_ROUTER), aliases, self.root)
+        self.assertEqual(r["component_file"], "web/src/views/admin/branches/BranchesView.vue")
+
+    def test_codegraph_link_is_the_fallback_when_the_expression_gives_nothing(self):
+        text = 'export const routes = [\n  { path: "/dyn", element: renderPage() },\n];\n'
+        s = {"id": "s", "path": "/dyn", "file": "src/router.tsx", "line": 2,
+             "component": {"name": "Other", "file": "src/pages/NewSearchPage.tsx", "line": 3}}
+        r = ui_text.resolve_component(s, ui_text.Source(text), [], self.root)
         self.assertEqual((r["status"], r["component_file"]), ("resolved", "src/pages/NewSearchPage.tsx"))
+
+    LOCAL_ROUTER = '''export function ViewerHomePage() {
+  return <div>Hello viewer</div>;
+}
+
+const AdminPage = () => {
+  return <div>Admin</div>;
+};
+
+export const App = () => (
+  <Routes>
+    <Route path="/viewer" element={<ViewerHomePage />} />
+    <Route path="/admin" element={<AdminPage />} />
+    <Route path="/nope" element={<NotDeclared />} />
+  </Routes>
+);
+'''
+
+    def test_components_declared_in_the_router_file_resolve_to_it_with_a_span(self):
+        src = ui_text.Source(self.LOCAL_ROUTER)
+
+        def resolve(path):
+            s = {"id": "s", "path": path, "file": "src/App.tsx", "line": line_of(self.LOCAL_ROUTER, f'path="{path}"')}
+            return ui_text.resolve_component(s, src, [], self.root)
+
+        viewer, admin, nope = resolve("/viewer"), resolve("/admin"), resolve("/nope")
+        self.assertEqual((viewer["status"], viewer["component_file"]), ("resolved", "src/App.tsx"))
+        self.assertEqual(viewer["candidates"][0]["span"], [1, 3])
+        self.assertEqual(admin["candidates"][0]["span"], [5, 7])
+        self.assertEqual(nope["status"], "unresolved")
 
     def test_a_line_outside_the_file_is_unresolved_not_a_crash(self):
         s = {"id": "s", "path": "/x", "file": "src/router.tsx", "line": 9999}

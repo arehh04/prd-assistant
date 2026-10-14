@@ -90,5 +90,24 @@ class JsxItemsTests(unittest.TestCase):
         self.assertEqual(ui_text.extract_items("const a = 1;\n", "a.ts"), [])
 
 
+class CalibrationFindingsTests(unittest.TestCase):
+    def pairs(self, text, rel="a.tsx"):
+        return {(i["kind"], i["text"]) for i in ui_text.extract_items(text, rel)}
+
+    def test_ui_library_attributes(self):
+        got = self.pairs('<Button label="New branch" /><Column header="Code" /><InputText placeholder="Search" label="Find" />\n')
+        self.assertLessEqual({("button", "New branch"), ("label", "Code"), ("placeholder", "Search"), ("label", "Find")}, got)
+
+    def test_strings_in_a_ternary_inside_text(self):
+        got = self.pairs('<span>{busy ? "Signing in…" : "Sign in"}</span>\n<p>{kind === "primary" ? "a" : "b"}</p>\n')
+        self.assertLessEqual({("text", "Signing in…"), ("text", "Sign in")}, got)
+        self.assertFalse([t for _, t in got if t in ("a", "b", "primary")])
+
+    def test_icon_ligature_names_are_not_text(self):
+        got = self.pairs('<span className="material-symbols">barcode_scanner</span><p>Verified customer</p>\n')
+        self.assertNotIn(("text", "barcode_scanner"), got)
+        self.assertIn(("text", "Verified customer"), got)
+
+
 if __name__ == "__main__":
     unittest.main()

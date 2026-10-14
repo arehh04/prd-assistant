@@ -202,6 +202,29 @@ def _object_components(src, obj, obj_end):
     return names, direct
 
 
+def _declaration_span(src, name):
+    """[first_line, last_line] of a component declared in this file (function or arrow const), or None."""
+    esc = re.escape(name)
+    m = re.search(r"\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+" + esc + r"\s*\(", src.code)
+    if m:
+        body = src.blanked.find("{", close_paren(src.blanked, m.end() - 1))
+        if body != -1:
+            return [src.line_at(m.start()), src.line_at(match_brace(src.blanked, body))]
+        return None
+    m = re.search(r"\b(?:const|let|var)\s+" + esc + r"\s*(?::[^=]+)?=", src.code)
+    if m:
+        arrow = src.blanked.find("=>", m.end())
+        if arrow != -1:
+            j = arrow + 2
+            while j < len(src.blanked) and src.blanked[j] in " \t\r\n":
+                j += 1
+            if j < len(src.blanked) and src.blanked[j] == "{":
+                return [src.line_at(m.start()), src.line_at(match_brace(src.blanked, j))]
+            if j < len(src.blanked) and src.blanked[j] == "(":
+                return [src.line_at(m.start()), src.line_at(close_paren(src.blanked, j))]
+    return None
+
+
 def resolve_component(screen, src, aliases, repo_root):
     base_dir = Path(screen["file"]).parent.as_posix()
     result = {"status": "unresolved", "component_file": None, "candidates": [], "title": None}
@@ -233,12 +256,16 @@ def resolve_component(screen, src, aliases, repo_root):
     cands = []
     for name in dict.fromkeys(names):
         spec = imports.get(name)
-        cands.append({"name": name, "file": resolve_module(spec, base_dir, aliases, repo_root) if spec else None})
+        if spec:
+            cands.append({"name": name, "file": resolve_module(spec, base_dir, aliases, repo_root)})
+            continue
+        span = _declaration_span(src, name)  # a component declared in the router file itself
+        cands.append({"name": name, "file": screen["file"] if span else None, **({"span": span} if span else {})})
     for spec in direct:
         cands.append({"name": Path(spec).stem, "file": resolve_module(spec, base_dir, aliases, repo_root)})
     hint = screen.get("component")
-    if hint and hint.get("file"):
-        cands = [{"name": hint["name"], "file": hint["file"]}]
+    if hint and hint.get("file") and not any(c["file"] for c in cands):
+        cands = [{"name": hint["name"], "file": hint["file"]}]  # the router's own expression gave nothing
     result["candidates"] = cands
     files = [c for c in cands if c["file"]]
     if files:
@@ -248,7 +275,10 @@ def resolve_component(screen, src, aliases, repo_root):
 
 
 ATTR_RE = re.compile(r"""([A-Za-z_:][\w:\-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*(["'`])(.*?)\4\s*\})""", re.S)
-TEXT_ATTRS = {"placeholder": "placeholder", "label": "label", "title": "title", "aria-label": "title", "alt": "title"}
+TEXT_ATTRS = {"placeholder": "placeholder", "label": "label", "header": "label", "title": "title",
+              "aria-label": "title", "alt": "title"}
+TERNARY_RE = re.compile(r"[?:]\s*(['\"`])((?:\\.|(?!\1).)*)\1")
+ICON_NAME_RE = re.compile(r"[a-z]+(?:_[a-z0-9]+)+")
 ERROR_CLASS_RE = re.compile(r"destructive|error", re.I)
 CALL_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(")
 MESSAGE_NAME_RE = re.compile(r"toast|error|alert|notify|snack|warning|success", re.I)
@@ -262,6 +292,25 @@ def _norm(text):
 
 def _has_letter(text):
     return any(c.isalpha() for c in text)
+
+
+def _visible(text):
+    """Has a letter and is not an icon-font ligature name such as barcode_scanner."""
+    return _has_letter(text) and not ICON_NAME_RE.fullmatch(text)
+
+
+def _attr_kind(attr, tag_name):
+    kind = TEXT_ATTRS[attr]
+    return "button" if attr == "label" and _tag_kind(tag_name) == "button" else kind
+
+
+def _ternary_pieces(inner, offset):
+    out = []
+    for t in TERNARY_RE.finditer(inner):
+        text = _norm(t.group(2))
+        if _has_letter(text) and not CODEISH_RE.fullmatch(text):
+            out.append((offset + t.start(2), t.group(2)))
+    return out
 
 
 def _tag_kind(name):
@@ -299,9 +348,12 @@ def _content_pieces(blanked, code, start):
         elif ch == "}" and depth > 0:
             depth -= 1
             if depth == 0:
-                literal = re.fullmatch(r"(['\"`])(.*)\1", code[open_i + 1:i].strip(), re.S)
+                inner = code[open_i + 1:i]
+                literal = re.fullmatch(r"(['\"`])(.*)\1", inner.strip(), re.S)
                 if literal:
                     pieces.append((open_i + 1, literal.group(2)))
+                else:
+                    pieces += _ternary_pieces(inner, open_i + 1)
                 piece_start = i + 1
         elif ch == "<" and depth == 0:
             if i > piece_start:
@@ -345,14 +397,14 @@ def _jsx_items(src, rel):
             elif attr == "role" and value == "alert":
                 error_ctx = True
             elif attr in TEXT_ATTRS and _has_letter(value):
-                items.append({"kind": TEXT_ATTRS[attr], "text": _norm(value), "file": rel,
+                items.append({"kind": _attr_kind(attr, name), "text": _norm(value), "file": rel,
                               "line": src.line_at(m.end() + a.start())})
         if blanked[end - 1] == "/":
             continue
         kind = "message" if error_ctx else _tag_kind(name)
         for pos, raw in _content_pieces(blanked, code, end + 1):
             text = _norm(raw)
-            if _has_letter(text):
+            if _visible(text):
                 items.append({"kind": kind, "text": text, "file": rel,
                               "line": src.line_at(pos + len(raw) - len(raw.lstrip()))})
     items += message_items(code, blanked, src.line_at, rel)
@@ -425,7 +477,7 @@ def _vue_items(text, rel):
                 elif attr == "role" and value == "alert":
                     error_ctx = True
                 elif attr in TEXT_ATTRS and _has_letter(value):
-                    items.append({"kind": TEXT_ATTRS[attr], "text": _norm(value), "file": rel,
+                    items.append({"kind": _attr_kind(attr, m.group(1)), "text": _norm(value), "file": rel,
                                   "line": line_at(t0 + m.end() + a.start())})
             if seg[i - 1] == "/":
                 continue
@@ -437,10 +489,12 @@ def _vue_items(text, rel):
                 stop = interp.start() if interp else end
                 raw = seg[pos:stop]
                 piece = _norm(raw)
-                if _has_letter(piece):
+                if _visible(piece):
                     items.append({"kind": kind, "text": piece, "file": rel,
                                   "line": line_at(t0 + pos + len(raw) - len(raw.lstrip()))})
                 if interp:
+                    for off, text in _ternary_pieces(interp.group(), interp.start()):
+                        items.append({"kind": kind, "text": _norm(text), "file": rel, "line": line_at(t0 + off)})
                     pos = interp.end()
     for s0, s1 in scripts:
         script = Source(text[s0:s1])
@@ -521,10 +575,11 @@ def build(repo_root, facts):
     own_files, used_by = {}, {}
     for sid in live:
         info = resolved[sid][1]
-        component_files = [c["file"] for c in info["candidates"] if c["file"]]
+        component_files = list(dict.fromkeys(c["file"] for c in info["candidates"] if c["file"]))
         extra = []
-        for rel in component_files:
-            extra += [f for f in imports.get(rel, []) if f not in component_files]
+        for c in info["candidates"]:
+            if c["file"] and not c.get("span"):  # a component declared in the router file has no imports of its own
+                extra += [f for f in imports.get(c["file"], []) if f not in component_files]
         own_files[sid] = (component_files, list(dict.fromkeys(extra)))
         for f in set(own_files[sid][1]):
             used_by[f] = used_by.get(f, 0) + 1
@@ -544,7 +599,11 @@ def build(repo_root, facts):
             if len(files) > MAX_FILES:
                 files, truncated = files[:MAX_FILES], True
             for rel in files:
-                items += items_for(rel)
+                found = items_for(rel)
+                spans = [c["span"] for c in info["candidates"] if c["file"] == rel and c.get("span")]
+                if spans:
+                    found = [i for i in found if any(a <= i["line"] <= b for a, b in spans)]
+                items += found
             if info["title"]:
                 items.append({"kind": "title", "text": info["title"]["text"], "file": screen["file"],
                               "line": info["title"]["line"]})
