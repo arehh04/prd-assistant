@@ -363,3 +363,86 @@ def extract_items(text, rel):
     if Path(rel).suffix.lower() == ".vue":
         return _vue_items(text, rel)
     return _finish(_jsx_items(Source(text), rel))
+
+
+HTML_ATTR_RE = re.compile(r"""([:@\w.\-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+VUE_INTERP_RE = re.compile(r"\{\{.*?\}\}", re.S)
+
+
+def _blank_comments(segment):
+    return HTML_COMMENT_RE.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), segment)
+
+
+def _vue_blocks(text):
+    template = None
+    m = re.search(r"<template\b[^>]*>", text)
+    if m:
+        depth = 1
+        for t in re.finditer(r"<(/?)template\b[^>]*>", text[m.end():]):
+            depth += -1 if t.group(1) else 1
+            if depth == 0:
+                template = (m.end(), m.end() + t.start())
+                break
+    scripts = []
+    for s in re.finditer(r"<script\b[^>]*>", text):
+        e = re.search(r"</script>", text[s.end():])
+        if e:
+            scripts.append((s.end(), s.end() + e.start()))
+    return template, scripts
+
+
+def _vue_items(text, rel):
+    starts = [0] + [m.end() for m in re.finditer("\n", text)]
+
+    def line_at(pos):
+        return bisect.bisect_right(starts, pos)
+
+    items = []
+    template, scripts = _vue_blocks(text)
+    if template:
+        t0, t1 = template
+        seg = _blank_comments(text[t0:t1])
+        for m in re.finditer(r"<([A-Za-z][\w\-.]*)", seg):
+            i, quote = m.end(), None
+            while i < len(seg):
+                ch = seg[i]
+                if quote:
+                    if ch == quote:
+                        quote = None
+                elif ch in "\"'":
+                    quote = ch
+                elif ch == ">":
+                    break
+                i += 1
+            if i >= len(seg):
+                continue
+            attrs, error_ctx = seg[m.end():i], False
+            for a in HTML_ATTR_RE.finditer(attrs):
+                attr, value = a.group(1), a.group(2) if a.group(2) is not None else a.group(3)
+                if attr in ("class",) and ERROR_CLASS_RE.search(value):
+                    error_ctx = True
+                elif attr == "role" and value == "alert":
+                    error_ctx = True
+                elif attr in TEXT_ATTRS and _has_letter(value):
+                    items.append({"kind": TEXT_ATTRS[attr], "text": _norm(value), "file": rel,
+                                  "line": line_at(t0 + m.end() + a.start())})
+            if seg[i - 1] == "/":
+                continue
+            nxt = seg.find("<", i + 1)
+            end = len(seg) if nxt == -1 else nxt
+            kind = "message" if error_ctx else _tag_kind(m.group(1))
+            pos = i + 1
+            for interp in list(VUE_INTERP_RE.finditer(seg, i + 1, end)) + [None]:
+                stop = interp.start() if interp else end
+                raw = seg[pos:stop]
+                piece = _norm(raw)
+                if _has_letter(piece):
+                    items.append({"kind": kind, "text": piece, "file": rel,
+                                  "line": line_at(t0 + pos + len(raw) - len(raw.lstrip()))})
+                if interp:
+                    pos = interp.end()
+    for s0, s1 in scripts:
+        script = Source(text[s0:s1])
+        items += message_items(script.code, script.blanked, lambda p, base=s0: line_at(base + p), rel)
+    return _finish(items)
