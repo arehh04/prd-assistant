@@ -317,6 +317,7 @@ TEXT_ATTRS = {"placeholder": "placeholder", "label": "label", "header": "label",
               "aria-label": "title", "alt": "title"}
 TERNARY_RE = re.compile(r"[?:]\s*(['\"`])((?:\\.|(?!\1).)*)\1")
 ICON_NAME_RE = re.compile(r"[a-z]+(?:_[a-z0-9]+)+")
+ICON_CLASS_RE = re.compile(r"material-symbols|material-icons|\bicon\b|\bfa-", re.I)
 ERROR_CLASS_RE = re.compile(r"destructive|error", re.I)
 CALL_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(")
 MESSAGE_NAME_RE = re.compile(r"toast|error|alert|notify|snack|warning|success", re.I)
@@ -344,6 +345,8 @@ def _attr_kind(attr, tag_name):
 
 def _ternary_pieces(inner, offset):
     out = []
+    if TAG_START_RE.search(inner):  # nested tags are read on their own; their attribute strings are not text
+        return out
     for t in TERNARY_RE.finditer(inner):
         text = _norm(t.group(2))
         if _has_letter(text) and not CODEISH_RE.fullmatch(text):
@@ -427,9 +430,11 @@ def _jsx_items(src, rel):
         if end < 0:
             continue
         attrs = code[m.end():end]
-        error_ctx = False
+        error_ctx = icon_ctx = False
         for a in ATTR_RE.finditer(attrs):
             attr, value = a.group(1), a.group(2) or a.group(3) or a.group(5) or ""
+            if attr in ("className", "class") and ICON_CLASS_RE.search(value):
+                icon_ctx = True
             if attr in ("className", "class") and ERROR_CLASS_RE.search(value):
                 error_ctx = True
             elif attr == "role" and value == "alert":
@@ -437,7 +442,7 @@ def _jsx_items(src, rel):
             elif attr in TEXT_ATTRS and _has_letter(value):
                 items.append({"kind": _attr_kind(attr, name), "text": _norm(value), "file": rel,
                               "line": src.line_at(m.end() + a.start())})
-        if blanked[end - 1] == "/":
+        if blanked[end - 1] == "/" or icon_ctx:
             continue
         kind = "message" if error_ctx else _tag_kind(name)
         for pos, raw in _content_pieces(blanked, code, end + 1):
@@ -507,9 +512,11 @@ def _vue_items(text, rel):
                 i += 1
             if i >= len(seg):
                 continue
-            attrs, error_ctx = seg[m.end():i], False
+            attrs, error_ctx, icon_ctx = seg[m.end():i], False, False
             for a in HTML_ATTR_RE.finditer(attrs):
                 attr, value = a.group(1), a.group(2) if a.group(2) is not None else a.group(3)
+                if attr == "class" and ICON_CLASS_RE.search(value):
+                    icon_ctx = True
                 if attr in ("class",) and ERROR_CLASS_RE.search(value):
                     error_ctx = True
                 elif attr == "role" and value == "alert":
@@ -517,7 +524,7 @@ def _vue_items(text, rel):
                 elif attr in TEXT_ATTRS and _has_letter(value):
                     items.append({"kind": _attr_kind(attr, m.group(1)), "text": _norm(value), "file": rel,
                                   "line": line_at(t0 + m.end() + a.start())})
-            if seg[i - 1] == "/":
+            if seg[i - 1] == "/" or icon_ctx:
                 continue
             nxt = seg.find("<", i + 1)
             end = len(seg) if nxt == -1 else nxt

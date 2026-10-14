@@ -108,6 +108,21 @@ class CalibrationFindingsTests(unittest.TestCase):
         self.assertNotIn(("text", "barcode_scanner"), got)
         self.assertIn(("text", "Verified customer"), got)
 
+    def test_class_names_inside_a_nested_tag_are_not_text(self):
+        snippet = ('function A() {\n  return (\n    <div>\n      {teams.map((team) => (\n        <button\n'
+                   '          className={`flex w-full ${\n            selected\n              ? "bg-muted text-foreground"\n'
+                   '              : "text-muted-foreground"\n          }`}\n        >\n          <span>{team.name}</span>\n'
+                   '        </button>\n      ))}\n    </div>\n  );\n}\n')
+        got = self.pairs(snippet)
+        self.assertFalse([t for _, t in got if "bg-muted" in t or "text-muted" in t])
+
+    def test_ternary_strings_still_work_without_nested_tags(self):
+        self.assertIn(("text", "Yes"), self.pairs('<p>{items.map((i) => (i.ok ? "Yes" : "No"))}</p>\n'))
+
+    def test_text_inside_an_icon_element_is_not_text(self):
+        got = self.pairs('<span className="material-symbols-outlined text-lg">warning</span><i className="icon">home</i><p>Careful now</p>\n')
+        self.assertEqual(got, {("text", "Careful now")})
+
 
 if __name__ == "__main__":
     unittest.main()
