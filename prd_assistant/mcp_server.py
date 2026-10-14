@@ -1,10 +1,12 @@
 """MCP server: JSON-RPC 2.0 over stdio exposing the criteria tools. Pure functions; bin/prd_mcp.py is the process."""
 import json
+import os
 import re
 import sys
+from pathlib import Path
 
 from . import criteria
-from .scaffold import esc
+from .scaffold import esc, text_cell
 
 SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 STRUCTURED_FROM = "2025-06-18"
@@ -170,3 +172,47 @@ def handle_line(line, session, config):
         return json.dumps(rpc_error(None, -32700, "Parse error."), ensure_ascii=True, separators=(",", ":"))
     response = handle_message(msg, session, config)
     return None if response is None else json.dumps(response, ensure_ascii=True, separators=(",", ":"))
+
+
+class RepoError(ToolError):
+    """The repo argument cannot be used (fixed message)."""
+
+
+def parse_roots(cli_roots, env_value, cwd):
+    raw = list(cli_roots or [])
+    if not raw and env_value:
+        raw = [p for p in env_value.split(os.pathsep) if p.strip()]
+    if not raw:
+        raw = [str(cwd)]
+    roots, warnings = [], []
+    for item in raw:
+        try:
+            path = Path(os.path.expanduser(item)).resolve(strict=True)
+        except (OSError, RuntimeError):
+            warnings.append(f"prd-mcp: root {_clip(item, 200)!r} does not exist and is ignored")
+            continue
+        if not path.is_dir():
+            warnings.append(f"prd-mcp: root {_clip(item, 200)!r} is not a directory and is ignored")
+            continue
+        roots.append(path)
+    return list(dict.fromkeys(roots)), warnings
+
+
+def resolve_repo(arg, config):
+    """Resolve once (symlinks and .. included), check against the resolved roots, return the resolved path."""
+    shown = text_cell(_clip(arg, 300))
+    if "\0" in arg:
+        raise RepoError("The repo path contains a NUL character.")
+    try:
+        path = Path(os.path.expanduser(arg)).resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise RepoError(f"The repo {shown} does not exist or cannot be resolved.") from None
+    if not path.is_dir():
+        raise RepoError(f"The repo {shown} is not a directory.")
+    if config.allow_any:
+        return path
+    for root in config.roots:
+        if path == root or root in path.parents:
+            return path
+    raise RepoError(f"The repo {shown} is outside the allowed roots. Start the server with --root DIR (repeatable) "
+                    "or set PRD_MCP_ROOTS to the folders that contain your repos, or use --allow-any-repo.")
