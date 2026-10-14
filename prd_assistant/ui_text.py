@@ -92,3 +92,156 @@ def parse_imports(text):
         names[m.group(1)] = m.group(3)
         specs.append(m.group(3))
     return names, specs
+
+
+TAG_START_RE = re.compile(r"(?<![\w$)\]])<([A-Za-z][\w.\-]*)")
+WRAPPERS = {"Suspense", "Navigate", "Fragment", "Outlet", "ErrorBoundary", "Route", "Routes",
+            "React.Fragment", "React.Suspense"}
+
+
+class Source:
+    """A file prepared for pattern scanning: comments blanked, offsets preserved."""
+
+    def __init__(self, text):
+        self.text = text
+        self.code = mask(text, blank_strings=False, apostrophe_in_words=True)
+        self.blanked = mask(text, apostrophe_in_words=True)
+        self.starts = [0] + [m.end() for m in re.finditer("\n", text)]
+
+    def line_at(self, pos):
+        return bisect.bisect_right(self.starts, pos)
+
+
+def tag_end(blanked, i):
+    """Index of the '>' that closes the opening tag whose name ends at i, or -1."""
+    depth, n = 0, len(blanked)
+    while i < n:
+        ch = blanked[i]
+        if ch in "{(":
+            depth += 1
+        elif ch in "})":
+            depth -= 1
+        elif ch == ">" and depth <= 0 and blanked[i - 1] != "=":
+            return i
+        i += 1
+    return -1
+
+
+def close_paren(blanked, open_idx):
+    depth = 0
+    for i in range(open_idx, len(blanked)):
+        if blanked[i] == "(":
+            depth += 1
+        elif blanked[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(blanked) - 1
+
+
+def _enclosing_object(blanked, pos):
+    depth = 0
+    for i in range(pos - 1, -1, -1):
+        ch = blanked[i]
+        if ch == "}":
+            depth += 1
+        elif ch == "{":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
+
+
+def _top_level_value(blanked, start, limit):
+    depth, i = 0, start
+    while i < limit:
+        ch = blanked[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif ch == "," and depth == 0:
+            break
+        i += 1
+    return i
+
+
+def _component_tags(code, blanked, start, end):
+    names, zones = [], []
+    for m in TAG_START_RE.finditer(code, start, end):
+        if any(a <= m.start() < b for a, b in zones):
+            continue
+        name = m.group(1)
+        if name in WRAPPERS:
+            zones.append((m.start(), max(tag_end(blanked, m.end()), m.start())))
+            continue
+        if name[:1].isupper() and name not in names:
+            names.append(name)
+    return names
+
+
+def _object_components(src, obj, obj_end):
+    names, direct = [], []
+    segment = src.code[obj:obj_end + 1]
+    for m in re.finditer(r"\b(element|Component|component)\s*:\s*", segment):
+        start = obj + m.end()
+        end = _top_level_value(src.blanked, start, obj_end)
+        expr = src.code[start:end]
+        if m.group(1) == "element" or expr.lstrip().startswith("<"):
+            names += _component_tags(src.code, src.blanked, start, end)
+            continue
+        imp = re.search(r"import\(\s*(['\"`])(.*?)\1", expr, re.S)
+        if imp:
+            direct.append(imp.group(2))
+            continue
+        ident = re.match(r"\s*([A-Z][\w$]*)", expr)
+        if ident:
+            names.append(ident.group(1))
+    return names, direct
+
+
+def resolve_component(screen, src, aliases, repo_root):
+    base_dir = Path(screen["file"]).parent.as_posix()
+    result = {"status": "unresolved", "component_file": None, "candidates": [], "title": None}
+    line = screen["line"]
+    if not 1 <= line <= len(src.starts):
+        return result
+    line_start = src.starts[line - 1]
+    line_end = src.starts[line] if line < len(src.starts) else len(src.code)
+    names, direct = [], []
+    tag = src.code.find("<Route", line_start, line_end)
+    if tag != -1:
+        end = tag_end(src.blanked, tag + len("<Route"))
+        if end != -1:
+            m = re.search(r"\b(?:element|Component)\s*=\s*\{", src.code[tag:end])
+            if m:
+                open_i = tag + m.end() - 1
+                names = _component_tags(src.code, src.blanked, open_i + 1, match_brace(src.blanked, open_i))
+    else:
+        key = re.compile(r"\bpath\s*:").search(src.code, line_start, line_end)
+        obj = _enclosing_object(src.blanked, key.start()) if key else None
+        if obj is not None:
+            obj_end = match_brace(src.blanked, obj)
+            names, direct = _object_components(src, obj, obj_end)
+            title = re.search(r"\btitle\s*:\s*(['\"`])(.*?)\1", src.code[obj:obj_end + 1])
+            if title:
+                result["title"] = {"text": " ".join(title.group(2).split()),
+                                   "line": src.line_at(obj + title.start(2))}
+    imports, _ = parse_imports(src.text)
+    cands = []
+    for name in dict.fromkeys(names):
+        spec = imports.get(name)
+        cands.append({"name": name, "file": resolve_module(spec, base_dir, aliases, repo_root) if spec else None})
+    for spec in direct:
+        cands.append({"name": Path(spec).stem, "file": resolve_module(spec, base_dir, aliases, repo_root)})
+    hint = screen.get("component")
+    if hint and hint.get("file"):
+        cands = [{"name": hint["name"], "file": hint["file"]}]
+    result["candidates"] = cands
+    files = [c for c in cands if c["file"]]
+    if files:
+        result["component_file"] = files[0]["file"]
+        result["status"] = "conditional" if len(cands) > 1 else "resolved"
+    return result
