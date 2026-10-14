@@ -36,8 +36,11 @@ def get_meta(conn, key):
 
 
 def check_versions(conn):
-    schema = conn.execute("select max(version) from schema_versions").fetchone()[0]
-    extraction = get_meta(conn, "indexed_with_extraction_version")
+    try:
+        schema = conn.execute("select max(version) from schema_versions").fetchone()[0]
+        extraction = get_meta(conn, "indexed_with_extraction_version")
+    except sqlite3.Error as exc:
+        raise VersionError(f"unreadable CodeGraph index ({exc}); rebuild it with `codegraph index`") from exc
     if schema != EXPECTED_SCHEMA or extraction != EXPECTED_EXTRACTION:
         raise VersionError(
             f"unsupported CodeGraph index: schema={schema} (expected {EXPECTED_SCHEMA}), "

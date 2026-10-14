@@ -20,3 +20,16 @@ def exclusion_reason(path, generated=False):
     if any(fnmatch.fnmatchcase(p.name, glob) for glob in TEST_NAME_GLOBS):
         return "test"
     return None
+
+
+SECRET_NAME_GLOBS = (
+    ".env*", ".envrc", "*.pem", "*.key", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*", "id_ecdsa*",
+    "credentials*", "service-account*", "serviceaccount*", ".npmrc", ".pypirc", ".netrc",
+    "*secret*.json", "*secret*.yml", "*secret*.yaml", "*secret*.txt", "*secret*.toml",
+)
+
+
+def is_secret_name(name):
+    """True for file names that look like credentials. Such files are never opened."""
+    lowered = name.lower()
+    return any(fnmatch.fnmatchcase(lowered, glob) for glob in SECRET_NAME_GLOBS)

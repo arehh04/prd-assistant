@@ -59,24 +59,36 @@ def _agreement(name, extracted, independent, applicable, thresholds, empty_ok_no
     return {"name": name, "status": grade(detail["disagreement"], thresholds), "detail": detail}
 
 
-def staleness(conn, repo_root, route_files, head):
+def disk_sources(repo_root):
+    return {rel for rel, _ in count.iter_files(repo_root, SOURCE_SUFFIXES, include_tests=True)}
+
+
+def staleness(conn, repo_root, route_files, head, disk):
     repo_root = Path(repo_root)
-    touched = []
+    touched, indexed_paths = [], set()
     for row in conn.execute("select path, content_hash from files"):
+        indexed_paths.add(row["path"])
         full = repo_root / row["path"]
-        if not full.is_file() or hashlib.sha256(full.read_bytes()).hexdigest() != row["content_hash"]:
+        try:
+            changed = hashlib.sha256(full.read_bytes()).hexdigest() != row["content_hash"]
+        except OSError:  # deleted, or unreadable now: either way the index no longer matches disk
+            changed = True
+        if changed:
             touched.append(row["path"])
     relevant = [p for p in touched if p in route_files or ROUTEISH_RE.search(p)]
+    # A route/router/controller file that appeared after indexing is invisible to CodeGraph.
+    new_routeish = sorted(p for p in disk - indexed_paths if ROUTEISH_RE.search(p))
+    relevant += new_routeish
     indexed = cgdb.get_meta(conn, "indexed_at_commit")
     status = "FAIL" if relevant else ("WARN" if touched else "PASS")
     return {"name": "index_staleness", "status": status, "detail": {
         "indexed_at_commit": indexed, "git_head": head,
         "commit_matches": None if not (indexed and head) else indexed == head,
-        "changed_files": len(touched), "relevant_changed": relevant, "sample_changed": touched[:20]}}
+        "changed_files": len(touched), "relevant_changed": relevant, "new_unindexed_route_files": new_routeish,
+        "sample_changed": touched[:20]}}
 
 
-def coverage(conn, repo_root, thresholds):
-    disk = {rel for rel, _ in count.iter_files(repo_root, SOURCE_SUFFIXES, include_tests=True)}
+def coverage(conn, disk, thresholds):
     indexed = {r["path"] for r in conn.execute("select path from files")}
     ratio = len(disk & indexed) / len(disk) if disk else 1.0
     status = "FAIL" if ratio < thresholds["fail"] else ("WARN" if ratio < thresholds["warn"] else "PASS")
@@ -105,11 +117,15 @@ def run(conn, repo_root, facts, frameworks, cfg=None, head="auto"):
                      "detail": {"note": "no framework detected, so no independent counter ran; "
                                         "this repo's facts are unverified", "extracted": len(routes_x)}}
     route_files = {r["file"] for r in facts["routes"]} | {s["file"] for s in facts["screens"]}
-    checks.append(staleness(conn, repo_root, route_files, head))
-    checks.append(coverage(conn, repo_root, cfg["language_coverage"]))
+    disk = disk_sources(repo_root)
+    checks.append(staleness(conn, repo_root, route_files, head, disk))
+    checks.append(coverage(conn, disk, cfg["language_coverage"]))
     unsupported = [u for a in facts.get("adapters", {}).values() for u in a.get("unsupported", [])]
     checks.append({"name": "adapter_unsupported", "status": "WARN" if unsupported else "PASS",
                    "detail": {"count": len(unsupported), "items": unsupported[:20]}})
+    unreadable = count.unreadable_paths()
+    checks.append({"name": "unreadable_files", "status": "WARN" if unreadable else "PASS",
+                   "detail": {"count": len(unreadable), "items": unreadable[:20]}})
     reached = {n["to_id"] for n in facts["navigation"]}
     checks.append({"name": "orphans", "status": "INFO", "detail": {
         "routes_without_handler": [r["id"] for r in facts["routes"] if not r.get("handler")],

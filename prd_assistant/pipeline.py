@@ -19,13 +19,18 @@ def ensure_index(repo):
         return repo, None
     work = Path(tempfile.mkdtemp(prefix="prd-index-"))
     copy = work / "copy"
-    shutil.copytree(repo, copy, symlinks=True, ignore=shutil.ignore_patterns(*SECRET_PATTERNS))
-    subprocess.run(["codegraph", "init", str(copy)], check=True, capture_output=True, text=True, timeout=900)
+    try:
+        shutil.copytree(repo, copy, symlinks=True, ignore=shutil.ignore_patterns(*SECRET_PATTERNS))
+        subprocess.run(["codegraph", "init", str(copy)], check=True, capture_output=True, text=True, timeout=900)
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)  # never leave a copy of the repo behind
+        raise
     return copy, work
 
 
 def run(repo, use_adapters=True):
     repo = Path(repo).resolve()
+    count.reset_unreadable()
     index_root, cleanup = ensure_index(repo)
     conn, tmp = cgdb.open_index(index_root)
     try:

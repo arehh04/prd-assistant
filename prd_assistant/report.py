@@ -27,13 +27,16 @@ def render_gate_md(result, facts):
         elif c["name"] == "index_staleness":
             lines += [f"- indexed commit: {d['indexed_at_commit']}, git HEAD: {d['git_head']}",
                       f"- changed files since index: {d['changed_files']}",
-                      f"- changed route/router/controller files: {d['relevant_changed'] or 'none'}"]
+                      f"- changed or new route/router/controller files: {d['relevant_changed'] or 'none'}"]
         elif c["name"] == "language_coverage":
             lines += [f"- source files on disk: {d['source_files_on_disk']}, indexed: {d['indexed']}, "
                       f"ratio: {d['ratio']}", f"- not indexed (sample): {d['not_indexed_sample'] or 'none'}"]
         elif c["name"] == "adapter_unsupported":
             lines.append(f"- unsupported constructs: {d['count']}")
             lines += [f"  - {u['file']}:{u['line']} `{u['text']}`" for u in d["items"]]
+        elif c["name"] == "unreadable_files":
+            lines.append(f"- files that could not be read: {d['count']}")
+            lines += [f"  - `{item}`" for item in d["items"]]
         elif c["name"] == "orphans":
             lines += [f"- routes without a handler: {len(d['routes_without_handler'])}",
                       f"- screens nothing navigates to: {len(d['screens_not_navigated_to'])}"]

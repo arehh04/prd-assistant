@@ -18,8 +18,24 @@ EXPRESS_RE = re.compile(
 LARAVEL_RE = re.compile(r"Route::(?:get|post|put|patch|delete|options)\s*\(")
 
 
+_UNREADABLE = set()
+
+
+def reset_unreadable():
+    _UNREADABLE.clear()
+
+
+def unreadable_paths():
+    return sorted(_UNREADABLE)
+
+
 def read_text(path):
-    return Path(path).read_text(encoding="utf-8-sig", errors="replace")
+    """Read a source file; an unreadable file is recorded (see unreadable_paths) instead of aborting."""
+    try:
+        return Path(path).read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        _UNREADABLE.add(str(path))
+        return ""
 
 
 def iter_files(root, suffixes, include_tests=False):
@@ -28,9 +44,11 @@ def iter_files(root, suffixes, include_tests=False):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
         for name in sorted(filenames):
-            if not name.endswith(suffixes):
+            if not name.endswith(suffixes) or paths.is_secret_name(name):
                 continue
             full = Path(dirpath) / name
+            if not full.is_file():  # broken symlinks, FIFOs, odd entries named like source files
+                continue
             rel = full.relative_to(root).as_posix()
             if not include_tests and paths.exclusion_reason(rel):
                 continue
@@ -41,6 +59,10 @@ def detect_frameworks(root):
     found = set()
     for rel, full in iter_files(root, (".json", ".txt", ".toml"), include_tests=True):
         name = Path(rel).name
+        is_manifest = (name in ("package.json", "composer.json", "pyproject.toml")
+                       or (name.startswith("requirements") and name.endswith(".txt")))
+        if not is_manifest:
+            continue
         text = read_text(full)
         if name == "package.json":
             if '"@nestjs/core"' in text:
