@@ -52,6 +52,11 @@ class GateTests(unittest.TestCase):
         roles = {**ROLES, "counts": {"routes": 10, "read": 1, "public": 0, "undeclared": 0, "not_read": 9}}
         self.assertEqual(devguide.dev_gate(roles, RULES, ERRORS)["verdict"], "FAIL")
 
+    def test_message_attachment_never_fails_the_run(self):
+        errors = {**ERRORS, "sites": {"total": 100, "attached": 3}, "unattached": 97}
+        by = {c["name"]: c["status"] for c in devguide.dev_gate(ROLES, RULES, errors)["checks"]}
+        self.assertEqual(by["message_attachment"], "WARN")
+
     def test_zero_denominators_are_info_not_pass(self):
         rules = {**RULES, "counts": {"routes": 3, "takes_input": 0, "read": 0, "not_read": 0}}
         errors = {**ERRORS, "sites": {"total": 0, "attached": 0}}

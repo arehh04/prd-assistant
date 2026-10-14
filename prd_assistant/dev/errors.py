@@ -22,6 +22,9 @@ HTTP_STATUS = {"BAD_REQUEST": 400, "UNAUTHORIZED": 401, "FORBIDDEN": 403, "NOT_F
                "UNPROCESSABLE_ENTITY": 422, "TOO_MANY_REQUESTS": 429, "INTERNAL_SERVER_ERROR": 500}
 THROW_TS_RE = re.compile(r"\bthrow\s+new\s+(\w+)\s*\(")
 THROW_PHP_RE = re.compile(r"\bthrow\s+new\s+([\w\\]+)\s*\(")
+THROW_STATIC_RE = re.compile(r"\bthrow\s+([\w\\]+)::(\w+)\s*\(")
+FACTORY_RE = re.compile(r"public\s+static\s+function\s+(\w+)\s*\(")
+NEW_SELF_RE = re.compile(r"\bnew\s+(?:self|static|\w+)\s*\(")
 ABORT_RE = re.compile(r"\babort\s*\(")
 ABORT_IF_RE = re.compile(r"\babort_(?:if|unless)\s*\(")
 SITE_RES = {".py": re.compile(r"\braise\s+HTTPException\b"),
@@ -153,7 +156,56 @@ def _php_text(arg):
     return None, None
 
 
-def php_messages(rel, text, start_line, via, helper=None):
+def php_factories(repo_root):
+    """{(Class, method): {status, params, defaults, code, message}} for `public static function m(...)` that
+    return `new self(<3-digit status>, <code>, <message>, ...)` (the usual application-exception factory)."""
+    out = {}
+    for rel, _full in count.iter_files(repo_root, (".php",)):
+        text = read_source(repo_root, rel)
+        if text is None or "static function" not in text:
+            continue
+        clean = mask(text, hash_comments=True, blank_strings=False)
+        masked = mask(text, hash_comments=True)
+        cls = re.search(r"\bclass\s+(\w+)", clean)
+        if not cls:
+            continue
+        for m in FACTORY_RE.finditer(clean):
+            params = paren_args(clean, m.end() - 1)
+            brace = clean.find("{", m.end() + len(params) + 1) if params is not None else -1
+            if brace == -1:
+                continue
+            body = clean[brace:match_brace(masked, brace) + 1]
+            made = NEW_SELF_RE.search(body)
+            args = split_args(paren_args(body, made.end() - 1) or "") if made else []
+            if len(args) < 3 or not re.fullmatch(r"\s*\d{3}\s*", args[0]):
+                continue
+            names, defaults = [], {}
+            for p in split_args(params):
+                pm = re.search(r"\$(\w+)(?:\s*=\s*(.*))?$", p.strip(), re.S)
+                if pm:
+                    names.append(pm.group(1))
+                    if pm.group(2) is not None:
+                        defaults[pm.group(1)] = pm.group(2).strip()
+            out[(cls.group(1), m.group(1))] = {"status": int(args[0]), "params": names, "defaults": defaults,
+                                               "code": args[1].strip(), "message": args[2].strip()}
+    return out
+
+
+def _factory_value(spec, expr, call_args):
+    """The literal text a factory call passes for `expr` (a literal, or a `$param` of the factory), or None."""
+    expr = expr.strip()
+    if not expr.startswith("$"):
+        return expr
+    name = expr[1:]
+    if name in spec["params"]:
+        idx = spec["params"].index(name)
+        if idx < len(call_args):
+            return call_args[idx].strip()
+        return spec["defaults"].get(name)
+    return None
+
+
+def php_messages(rel, text, start_line, via, helper=None, factories=None):
     clean = mask(text, hash_comments=True, blank_strings=False)
     masked = mask(text, hash_comments=True)
     span = _body(clean, masked, start_line, text)
@@ -175,6 +227,19 @@ def php_messages(rel, text, start_line, via, helper=None):
     for m in list(ABORT_IF_RE.finditer(body))[:MAX_THROWS]:
         parts = split_args(paren_args(body, m.end() - 1) or "")
         add(m.start(), _status_arg(parts[1]) if len(parts) > 1 else None, parts[2] if len(parts) > 2 else None)
+    for m in list(THROW_STATIC_RE.finditer(body))[:MAX_THROWS]:
+        spec = (factories or {}).get((m.group(1).split("\\")[-1], m.group(2)))
+        if spec is None:
+            continue
+        call_args = split_args(paren_args(body, m.end() - 1) or "")
+        text_arg = _factory_value(spec, spec["message"], call_args)
+        before = len(messages)
+        add(m.start(), spec["status"], text_arg)
+        if len(messages) > before:
+            code = _factory_value(spec, spec["code"], call_args)
+            kind, code_text = _php_text(code) if code is not None else (None, None)
+            if code_text is not None:
+                messages[-1]["code"] = code_text
     for m in list(THROW_PHP_RE.finditer(body))[:MAX_THROWS]:
         if not m.group(1).endswith("Exception"):
             continue
@@ -192,7 +257,7 @@ def callees(conn, handler_id):
     return [r for r in rows if not paths.exclusion_reason(r["file_path"])][:25]
 
 
-def _extract(repo_root, rel, line, via, helper, pyidx):
+def _extract(repo_root, rel, line, via, helper, pyidx, factories=None):
     text = read_source(repo_root, rel)
     if text is None:
         return [], ["the file could not be read"]
@@ -202,7 +267,7 @@ def _extract(repo_root, rel, line, via, helper, pyidx):
     if rel.endswith((".ts", ".js")):
         return ts_messages(rel, text, line, via, helper)
     if rel.endswith(".php"):
-        return php_messages(rel, text, line, via, helper)
+        return php_messages(rel, text, line, via, helper, factories)
     return [], ["no reader for this file type"]
 
 
@@ -214,11 +279,14 @@ def _count_sites(repo_root):
             continue
         suffix = rel[rel.rfind("."):]
         total += len(SITE_RES[suffix].findall(mask(text, hash_comments=rel.endswith((".php", ".py")))))
+        if suffix == ".php":
+            total += len(re.findall(r"\bthrow\s+[\w\\]+::\w+\s*\(", mask(text, hash_comments=True)))
     return total
 
 
 def build(repo_root, facts, roles, conn):
     pyidx = PyIndex(repo_root)
+    factories = php_factories(repo_root)
     messages, not_read = [], {}
 
     def note(reasons):
@@ -242,7 +310,7 @@ def build(repo_root, facts, roles, conn):
             note(["no CodeGraph index: helper messages were not read"])
         for j_rel, j_line, via, helper in jobs:
             try:
-                found, unread = _extract(repo_root, j_rel, j_line, via, helper, pyidx)
+                found, unread = _extract(repo_root, j_rel, j_line, via, helper, pyidx, factories)
             except Exception as exc:  # a hostile file must not stop the run
                 found, unread = [], [f"reader error: {type(exc).__name__}"]
             messages += [{"route": rid, **m} for m in found]

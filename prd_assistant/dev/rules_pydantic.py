@@ -4,7 +4,8 @@ import ast
 from .pyast import member
 
 SKIP_ANNOTATIONS = {"Request", "Response", "BackgroundTasks", "WebSocket", "HTTPConnection"}
-MARKERS = {"Query": "query", "Header": "header", "Cookie": "cookie", "Path": "path", "Body": "body"}
+MARKERS = {"Query": "query", "Header": "header", "Cookie": "cookie", "Path": "path", "Body": "body",
+           "File": "body", "Form": "body"}
 CONSTRAINTS = {"ge": "min", "gt": "min", "min_length": "min", "le": "max", "lt": "max", "max_length": "max",
                "pattern": "pattern", "regex": "pattern"}
 _BUILTIN_CAPS = {"None", "True", "False", "Decimal", "Path", "Enum"}

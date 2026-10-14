@@ -55,6 +55,58 @@ def triple(msgs):
     return [(m["status"], m["kind"], m["text"]) for m in msgs]
 
 
+API_EXC = r'''<?php
+namespace App\Support;
+final class ApiException extends RuntimeException
+{
+    public static function businessRule(string $code, string $message, array $details = []): self
+    {
+        return new self(422, $code, $message, $details);
+    }
+
+    public static function notFound(string $message = 'Resource not found.'): self
+    {
+        return new self(404, 'NOT_FOUND', $message);
+    }
+
+    public static function rateLimited(int $retryAfterSeconds, string $message = 'Too many requests.'): self
+    {
+        return new self(429, 'RATE_LIMITED', $message, [], []);
+    }
+}
+'''
+ACTION = r'''<?php
+class A {
+    public function handle() {
+        throw ApiException::businessRule('ROOM_INACTIVE', 'Reactivate the room first.');
+        throw ApiException::notFound();
+        throw ApiException::rateLimited(RateLimiter::availableIn($key), 'Too many duplicate attempts.');
+        throw ApiException::businessRule('X', $computed);
+    }
+}
+'''
+
+
+class PhpFactoryTests(unittest.TestCase):
+    def test_static_factory_exceptions_use_the_factory_status_code_and_default_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "app/Support/ApiException.php"
+            p.parent.mkdir(parents=True)
+            p.write_text(API_EXC)
+            factories = errors.php_factories(tmp)
+        msgs, unread = errors.php_messages("A.php", ACTION, line_of(ACTION, "function handle"), "helper",
+                                           factories=factories)
+        self.assertEqual(triple(msgs), [(422, "literal", "Reactivate the room first."),
+                                        (404, "literal", "Resource not found."),
+                                        (429, "literal", "Too many duplicate attempts.")])
+        self.assertEqual([m.get("code") for m in msgs], ["ROOM_INACTIVE", "NOT_FOUND", "RATE_LIMITED"])
+        self.assertEqual(len(unread), 1)
+
+    def test_unknown_factory_class_is_not_a_message(self):
+        msgs, unread = errors.php_messages("A.php", ACTION, line_of(ACTION, "function handle"), "handler", factories={})
+        self.assertEqual(msgs, [])
+
+
 class ExtractorTests(unittest.TestCase):
     def test_python_literal_template_dict_and_computed(self):
         tree = pyast.py_tree(PY)

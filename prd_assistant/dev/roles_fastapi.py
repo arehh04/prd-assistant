@@ -66,6 +66,7 @@ def _analyze(name, idx, rel_hint, depth=3, seen=()):
     rel, fn = pick[0]
     here = f"{name} ({rel}:{fn.lineno})"
     inner = [_analyze(d, idx, rel, depth - 1, seen + (name,)) for d in _depends_names(fn, include_decorators=False)]
+    unreadable = [i for i in inner if i["kind"] == "unknown"]
     allowed = _role_check(fn, idx.consts.get(rel, {}))
     if allowed is not None or _raises_status(fn.body, 401):
         kind = "roles" if allowed is not None else "signin"
@@ -78,7 +79,10 @@ def _analyze(name, idx, rel_hint, depth=3, seen=()):
     for i in inner:
         if i["kind"] in ("roles", "signin"):
             return {**i, "chain": [here] + i["chain"], "guards": [f"{rel}:{fn.lineno}"] + i["guards"]}
-    return {"kind": "unknown", "why": f"dependency {name} has no recognised role or sign-in check"}
+    if unreadable:
+        return {"kind": "unknown", "why": f"dependency {name} depends on one that could not be read ({unreadable[0]['why']})"}
+    # found, read, and no role or sign-in check anywhere in it: a service or session factory, not a guard
+    return {"kind": "plumbing", "chain": [here], "guards": []}
 
 
 def _find_handler(tree, line):
@@ -104,6 +108,11 @@ def read_roles(rel, tree, text, line, idx):
     if unknown:
         return {"status": "not_read", "roles": None, "authenticated": False, "via": [], "source": source,
                 "reason": "; ".join(r["why"] for r in unknown), "notes": notes}
+    if all(r["kind"] == "plumbing" for r in results):
+        notes = notes + ["dependencies were read but none is a role or sign-in check: " + ", ".join(deps)]
+        return {"status": "undeclared", "roles": None, "authenticated": False, "via": [], "guards": [],
+                "undeclared_means": "open", "notes": notes, "source": source}
+    results = [r for r in results if r["kind"] != "plumbing"]
     role_results = [r for r in results if r["kind"] == "roles"]
     guards = list(dict.fromkeys(g for r in results for g in r["guards"]))
     via = [" -> ".join(r["chain"]) for r in results]

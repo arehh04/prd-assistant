@@ -61,6 +61,23 @@ async def odd(x=Depends(mystery)):
 @router.get("/both")
 async def both(a=Depends(require_admin), b=Depends(require_developer)):
     return 1
+
+
+@router.get("/svc")
+async def svc(s=Depends(_get_service)):
+    return 1
+
+
+@router.get("/svc_me")
+async def svc_me(s=Depends(_get_service), user=Depends(require_user)):
+    return 1
+'''
+PLUMBING = '''def get_db():
+    return 1
+
+
+def _get_service(db=Depends(get_db)):
+    return 2
 '''
 
 
@@ -75,6 +92,7 @@ class FastApiRolesTests(unittest.TestCase):
         (root / "api").mkdir()
         (root / "api" / "dependencies.py").write_text(DEPS)
         (root / "api" / "users.py").write_text(ROUTES)
+        (root / "api" / "plumbing.py").write_text(PLUMBING)
         self.idx = pyast.PyIndex(root)
         self.addCleanup(self.tmp.cleanup)
 
@@ -114,6 +132,13 @@ class FastApiRolesTests(unittest.TestCase):
         r = roles_fastapi.read_roles("api/users.py", tree, text, line_of(text, "async def open_page"), self.idx)
         self.assertEqual(r["status"], "undeclared")
         self.assertTrue(any("router-level" in n for n in r["notes"]))
+
+    def test_plumbing_dependencies_are_not_guards_and_do_not_hide_a_real_guard(self):
+        only = self.rec("async def svc(")
+        self.assertEqual((only["status"], only["undeclared_means"]), ("undeclared", "open"))
+        self.assertTrue(any("_get_service" in n for n in only["notes"]))
+        both = self.rec("async def svc_me(")
+        self.assertEqual((both["status"], both["authenticated"]), ("read", True))
 
     def test_handler_not_found_is_not_read(self):
         tree = self.idx.trees["api/users.py"]

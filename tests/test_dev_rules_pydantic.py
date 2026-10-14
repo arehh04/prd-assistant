@@ -34,6 +34,11 @@ async def create(team_id: str, body: CreateTeam, request: Request, limit: int = 
 @router.get("/plain")
 async def plain():
     return 1
+
+
+@router.post("/upload")
+async def upload(file: UploadFile = File(...), kind: str = Form(...), note: str = Form("x")):
+    return 1
 '''
 
 
@@ -81,6 +86,14 @@ class PydanticRulesTests(unittest.TestCase):
     def test_handler_without_params(self):
         r = self.rec("async def plain", "/plain")
         self.assertEqual((r["fields"], r["not_read"]), ([], []))
+
+    def test_upload_and_form_parameters_are_body_fields(self):
+        r = self.rec("async def upload", "/upload")
+        by = {f["name"]: f for f in r["fields"]}
+        self.assertEqual(r["not_read"], [])
+        self.assertEqual((by["file"]["location"], by["file"]["required"]), ("body", True))
+        self.assertEqual((by["kind"]["location"], by["kind"]["required"]), ("body", True))
+        self.assertFalse(by["note"]["required"])
 
     def test_unknown_model_is_not_read(self):
         text = ROUTES.replace("body: CreateTeam", "body: NoSuchModel")
