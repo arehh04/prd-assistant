@@ -55,6 +55,12 @@ def _check_slot(key, text, spec):
         quote = _norm(m.group(1) or m.group(2))
         if not any(quote in text_ for text_ in shown):
             errors.append(_err(key, "quotes", f'quoted text not found in the cited evidence: "{quote}"'))
+    terms = spec.get("banned_terms") or []
+    if terms:
+        visible = QUOTE_RE.sub(" ", CITE_RE.sub(" ", stripped))
+        hits = sorted({t for t in terms if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", visible, re.I)})
+        if hits:
+            errors.append(_err(key, "jargon", "plain-language rule: avoid " + ", ".join(hits)))
     return errors
 
 
