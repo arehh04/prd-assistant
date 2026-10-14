@@ -167,3 +167,67 @@ def parse_calls(text, rel, side, language):
         number = line_of(code, m.start())
         ignored.append({"file": rel, "line": number, "text": lines[number - 1].strip()[:120]})
     return calls, ignored
+
+
+def frontend_roots(repo_root):
+    roots = []
+    for rel, full in count.iter_files(repo_root, (".json",), include_tests=True):
+        if Path(rel).name != "package.json":
+            continue
+        text = count.read_text(full)
+        if '"vue-router"' in text or re.search(r'"react-router(?:-dom)?"', text):
+            parent = Path(rel).parent.as_posix()
+            roots.append("" if parent == "." else parent)
+    return roots
+
+
+def collect_calls(repo_root, side):
+    calls, ignored = [], []
+    if side == "tests":
+        files = [(rel, full) for rel, full in count.iter_files(repo_root, tuple(LANGUAGE_BY_SUFFIX), include_tests=True)
+                 if paths.exclusion_reason(rel) == "test" and not rel.endswith(".vue")]
+    else:
+        roots = frontend_roots(repo_root)
+        files = [(rel, full) for rel, full in count.iter_files(repo_root, tuple(LANGUAGE_BY_SUFFIX))
+                 if language_of(rel) == "js" and any(r == "" or rel.startswith(r + "/") for r in roots)]
+    for rel, full in files:
+        language = language_of(rel)
+        if language is None:
+            continue
+        found, skipped = parse_calls(count.read_text(full), rel, side, language)
+        calls += found
+        ignored += skipped
+    return calls, ignored
+
+
+def link(repo_root, facts):
+    route_list = [{"id": r["id"], "method": r["method"], "segs": segments(r["path"])} for r in facts["routes"]]
+    route_segs = {r["id"]: r["segs"] for r in route_list}
+    prefix = tuple(groups.global_prefix([r["path"] for r in facts["routes"]]))
+    out = {"schema": 1, "tests": None, "frontend": None, "calls": [],
+           "routes": {r["id"]: {"http_tests": [], "frontend": []} for r in facts["routes"]}}
+    for side in ("tests", "frontend"):
+        calls, ignored = collect_calls(repo_root, side)
+        totals = {"call_sites": len(calls), "matched": 0, "matched_via_prefix": 0, "ambiguous": 0,
+                  "unmatched": 0, "dynamic": 0, "ignored_candidates": len(ignored)}
+        for c in calls:
+            if c["dynamic"]:
+                bucket, ids, via = "dynamic", [], False
+            else:
+                bucket, ids, via = match_call(segments(c["raw"]), c["method"], route_list, prefix)
+                if (bucket == "ambiguous" and side == "frontend" and c["method"] is None
+                        and len({route_segs[i] for i in ids}) == 1):
+                    bucket = "matched"  # same path, routes differ only by HTTP method
+            totals[bucket] += 1
+            if bucket == "matched" and via:
+                totals["matched_via_prefix"] += 1
+            if bucket == "matched":
+                slot = "http_tests" if side == "tests" else "frontend"
+                for rid in (ids if side == "frontend" else ids[:1]):
+                    out["routes"][rid][slot].append({"file": c["file"], "line": c["line"]})
+            out["calls"].append({"side": side, "file": c["file"], "line": c["line"], "method": c["method"],
+                                 "raw": c["raw"], "bucket": bucket, "route_ids": ids})
+        if sum(totals[b] for b in BUCKETS) != totals["call_sites"]:
+            raise LinkError(f"{side}: buckets {totals} do not add up to the call-site total")
+        out[side] = {"totals": totals, "ignored_sample": ignored[:20]}
+    return out
