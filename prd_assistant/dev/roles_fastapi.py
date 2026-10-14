@@ -7,13 +7,24 @@ from .pyast import http_exception, member, members
 ROUTER_DEPS_RE = re.compile(r"APIRouter\([^)]*dependencies\s*=")
 
 
+SECURITY_NAMES = {"Security", "OAuth2PasswordBearer", "OAuth2AuthorizationCodeBearer", "HTTPBearer", "HTTPBasic",
+                  "APIKeyHeader", "APIKeyQuery", "APIKeyCookie", "SecurityScopes"}
+ROLE_LIKE_RE = re.compile(r"role|type|kind|permission|group|scope|level|is_admin")
+
+
 def _depends_in(expr):
     names = []
     for node in ast.walk(expr):
-        if isinstance(node, ast.Call) and member(node.func) == "Depends" and node.args:
-            name = member(node.args[0])
-            if name:
-                names.append(name)
+        if not (isinstance(node, ast.Call) and member(node.func) in ("Depends", "Security")):
+            continue
+        first = node.args[0] if node.args else None
+        name = member(first) if first is not None and not isinstance(first, ast.Call) else None
+        if name:
+            names.append(name)
+        elif first is not None or node.keywords:
+            names.append("<" + (ast.unparse(first)[:40] if first is not None else "dependency") + ">")
+        if member(node.func) == "Security" and any(k.arg == "scopes" for k in node.keywords):
+            names.append("<security scopes>")
     return names
 
 
@@ -50,11 +61,24 @@ def _role_check(fn, consts):
         if not isinstance(node, ast.If) or not _raises_status(node.body, 403):
             continue
         test = node.test
-        if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.NotIn, ast.NotEq)):
+        if (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.NotIn, ast.NotEq))
+                and ROLE_LIKE_RE.search(ast.unparse(test.left).lower())):
             allowed = members(test.comparators[0], consts)
             if allowed is not None:
                 return allowed
     return None
+
+
+def _suspicious(fn):
+    """Raises something other than a recognised HTTPException, an unrecognised 401/403, or uses a security scheme."""
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Raise) and node.exc is not None:
+            got = http_exception(node.exc)
+            if got is None or got[0] in (401, 403):
+                return True
+        if isinstance(node, (ast.Name, ast.Attribute)) and member(node) in SECURITY_NAMES:
+            return True
+    return False
 
 
 def _analyze(name, idx, rel_hint, depth=3, seen=()):
@@ -81,6 +105,8 @@ def _analyze(name, idx, rel_hint, depth=3, seen=()):
             return {**i, "chain": [here] + i["chain"], "guards": [f"{rel}:{fn.lineno}"] + i["guards"]}
     if unreadable:
         return {"kind": "unknown", "why": f"dependency {name} depends on one that could not be read ({unreadable[0]['why']})"}
+    if _suspicious(fn):
+        return {"kind": "unknown", "why": f"dependency {name} raises or uses a security scheme in a form that is not understood"}
     # found, read, and no role or sign-in check anywhere in it: a service or session factory, not a guard
     return {"kind": "plumbing", "chain": [here], "guards": []}
 

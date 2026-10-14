@@ -90,7 +90,7 @@ class BuildTests(unittest.TestCase):
     def test_tables_show_who_fields_and_errors(self):
         self.assertIn("ADMIN", self.text)
         self.assertIn("any signed-in user", self.text)
-        self.assertIn("no declaration (means denied)", self.text)
+        self.assertIn("refused by the global guard", self.text)
         self.assertIn("period", self.text)
         self.assertIn("not read", self.text.lower())
         self.assertIn("WORKER", self.text)          # the role mismatch

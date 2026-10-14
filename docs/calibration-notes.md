@@ -152,7 +152,7 @@ Numbers are from each run's `dev/dev_summary.json` after the fixes listed below.
 | Repo | Routes | Roles read / public / undeclared / not read | Request routes read | Raise sites attached | Screens joined to endpoints | Mismatches (roles / limits) | Dev gate |
 |---|---|---|---|---|---|---|---|
 | room-management (Laravel + Vue) | 66 | 63 / 0 / 3 / 0 | 38 of 53 | 49 of 118 | 9 of 17 | 0 / 0 | WARN |
-| Urus (NestJS + React) | 78 | 73 / 5 / 0 / 0 | 58 of 60 | 67 of 250 | 0 of 15 | 0 / 0 | WARN |
+| Urus (NestJS + React) | 78 | 73 / 5 / 0 / 0 | 56 of 60 | 67 of 250 | 0 of 15 | 0 / 0 | WARN |
 | tis (FastAPI + React), not golden | 137 | 117 / 0 / 20 / 0 | 109 of 111 | 143 of 248 | 20 of 21 | 0 / 0 | WARN |
 
 ### Defects found by calibration and fixed (all test-first)
@@ -187,3 +187,15 @@ Followed `skills/developer-guide-from-code/SKILL.md` as the model: 15 slots (1 o
 - `POST /api/v1/payroll/calculate` appears with roles `FINANCE, ADMIN` and the three zod fields; no table cell contains an unescaped `<`.
 - Caveat: same session that wrote the lint rules, so a first-run pass is weak evidence about lint strength. The strength evidence is the negative tests (hostile message text, quotes not in the cited evidence).
 - What a reader should know: the guide says 0 of 15 screens were joined to endpoints, so its mismatch tables are empty because nothing was checked, not because nothing differs.
+
+### After the final review
+
+The fresh whole-branch review found, and these fixes closed (each with a failing test first):
+
+- FastAPI `Depends(require_role("admin"))`, `Depends(factory(...))` and `Security(..., scopes=...)` were dropped and the endpoint reported as open; they are now `not_read`.
+- A dependency that raises something other than a recognised `HTTPException`, or uses a security scheme, is no longer called plumbing; a 403 guard whose comparison is not about a role-like attribute (`user.id != item.owner`) is no longer read as a role list.
+- Role lists with a call, a template or any unparseable part (`@Roles(getRoles())`), an empty `@Roles()`, Laravel `'role:'.$x`, dynamic middleware arguments and `withoutMiddleware` are `not_read`; `role:a|b` is split on the pipe.
+- An endpoint with an empty role list can no longer produce a mismatch claim; mismatch wording now says how the screen was joined.
+- `dev-prepare` and `guide-prepare` now remove their older outputs before any validation, so an early failure cannot leave a guide that `assemble` accepts.
+- Quadratic scans were bounded (a 217 KB nav file took 62 s, a 670 KB constants file 62 s); Laravel route groups are computed once per routes file.
+- `Annotated[User, Depends(get_user)]` no longer produces body fields; NestJS `@Body(new ValidationPipe())`, `@Req()` and other unrecognised parameter decorators are `not_read` (two Urus upload endpoints moved from "read" to "not read"); `z.coerce.x()`, exclusive bounds and unparseable zod chains are handled; an unknown status renders as `?`; "undeclared" is worded as "found no declaration" instead of a bare "open".

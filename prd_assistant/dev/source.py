@@ -87,7 +87,7 @@ def split_args(args):
 
 
 CONST_RE = re.compile(
-    r"\b(?:export\s+)?const\s+([A-Z][A-Za-z0-9_]*)\b(?:\s*:[^=\n]+)?\s*=\s*(?:new\s+Set\(\s*)?\[([^\]]*)\]", re.S)
+    r"\b(?:export\s+)?const\s+([A-Z][A-Za-z0-9_]*)\b(?:\s*:[^=\n]+)?\s*=\s*(?:new\s+Set\(\s*)?\[([^\]]{0,2000})\]", re.S)
 ITEM_RE = re.compile(r"\.\.\.\s*([A-Za-z_]\w*)|(['\"])([^'\"]+)\2|([A-Za-z_]\w*)\.([A-Za-z_]\w*)")
 
 
@@ -126,6 +126,8 @@ class ConstIndex:
                 roles.append(m.group(3))
             else:
                 roles.append(m.group(5))
+        if re.search(r"[^\s,\[\]]", ITEM_RE.sub("", body)):
+            return None   # something in the list is not a plain name or string (a call, a template): do not guess
         return list(dict.fromkeys(roles)), via
 
     def resolve(self, name, depth=3, local=None, local_rel=""):

@@ -58,7 +58,9 @@ def _who(rec):
     if status == "public":
         return "anyone"
     if status == "undeclared":
-        return f"no declaration (means {rec.get('undeclared_means', 'unknown')})"
+        return {"open": "no declaration found (open unless guarded where this tool does not look)",
+                "denied": "no declaration (refused by the global guard)"}.get(
+                    rec.get("undeclared_means"), "no declaration found (effect unknown)")
     return "not read: " + rec.get("reason", "")
 
 
@@ -68,7 +70,7 @@ def _field_text(f):
         bits.append("required" if f["required"] else "optional")
     if f.get("type"):
         bits.append(str(f["type"]))
-    for key in ("min", "max"):
+    for key in ("min", "max", "gt", "lt"):
         if f.get(key) is not None:
             bits.append(f"{key} {f[key]}")
     if f.get("format"):
@@ -78,6 +80,10 @@ def _field_text(f):
     if f.get("pattern"):
         bits.append("pattern " + str(f["pattern"]))
     return f"{f['name']} ({f['location']}{'; ' + ', '.join(bits) if bits else ''})"
+
+
+def _st(m):
+    return "?" if m["status"] is None else m["status"]
 
 
 def _item(source, text):
@@ -137,7 +143,9 @@ def build(facts, slice1_gate, roles, rules, errors, gate, repo_name, today):
         L += [f"| `{cell(paths_of.get(sid, sid))}` | {text_cell(', '.join(rec['roles'] or []))} | `{cell(rec['source'])}` |"
               for sid, rec in shown]
         L.append("")
-    L += ["### Role mismatches", ""]
+    L += ["### Role mismatches", "",
+          "_A screen is compared with endpoints called from its files or from files they import (up to 2 hops); "
+          "check the sources before acting._", ""]
     if roles["mismatches"]:
         L += ["| Screen | Endpoint | Screen roles | Endpoint roles | Refused |", "|---|---|---|---|---|"]
         L += [f"| `{cell(paths_of.get(m['screen'], m['screen']))}` | `{cell(label(m['endpoint']))}` | "
@@ -162,14 +170,14 @@ def build(facts, slice1_gate, roles, rules, errors, gate, repo_name, today):
             fields_txt = "; ".join(fields[:12]) + (f"; and {len(fields) - 12} more" if len(fields) > 12 else "")
             if req["not_read"]:
                 fields_txt += (" | " if fields_txt else "") + "not read: " + "; ".join(req["not_read"][:2])
-            errs = [f"{m['status']} {m['text']}" for m in msgs.get(rid, [])]
+            errs = [f"{_st(m)} {m['text']}" for m in msgs.get(rid, [])]
             errs_txt = "; ".join(errs[:6]) + (f"; and {len(errs) - 6} more" if len(errs) > 6 else "")
             L.append(f"| {route['method']} | `{cell(route['path'])}` | {text_cell(_who(rec))} | {text_cell(fields_txt or '-')} | "
                      f"{text_cell(errs_txt or '-')} | `{cell(rec.get('source', ''))}` |")
             if rec.get("source"):
                 items.append(_item(rec["source"], f"roles for {label(rid)}: {_who(rec)}"))
             items += [_item(f["source"], f"{label(rid)} field {_field_text(f)}") for f in req["fields"] if f.get("source")]
-            items += [_item(m["source"], f"{label(rid)} returns {m['status']}: {m['text']}") for m in msgs.get(rid, [])]
+            items += [_item(m["source"], f"{label(rid)} returns {_st(m)}: {m['text']}") for m in msgs.get(rid, [])]
         if len(g["routes"]) > MAX_ROWS:
             L.append(f"| and {len(g['routes']) - MAX_ROWS} more | | | | | |")
         L.append("")
@@ -188,7 +196,8 @@ def build(facts, slice1_gate, roles, rules, errors, gate, repo_name, today):
         L.append("")
     if not any_form:
         L += ["- none found", ""]
-    L += ["### Form and endpoint limits that differ", ""]
+    L += ["### Form and endpoint limits that differ", "",
+          "_Fields are matched by exact name across the endpoints joined to the screen._", ""]
     if rules["mismatches"]:
         L += ["| Screen | Endpoint | Field | Kind | Form | Endpoint |", "|---|---|---|---|---|---|"]
         L += [f"| `{cell(paths_of.get(m['screen'], m['screen']))}` | `{cell(label(m['endpoint']))}` | {text_cell(m['field'])} | "
@@ -200,7 +209,7 @@ def build(facts, slice1_gate, roles, rules, errors, gate, repo_name, today):
     L += ["## 5. Gaps", ""]
     gaps = [f"- `{cell(label(rid))}`: roles not read ({text_cell(rec.get('reason', ''))})"
             for rid, rec in roles["endpoints"].items() if rec["status"] == "not_read"][:20]
-    gaps += [f"- `{cell(label(rid))}`: no role declaration (means {rec.get('undeclared_means', 'unknown')})"
+    gaps += [f"- `{cell(label(rid))}`: {text_cell(_who(rec))}"
              for rid, rec in roles["endpoints"].items() if rec["status"] == "undeclared"][:20]
     gaps += [f"- `{cell(label(rid))}`: request not read ({text_cell(rec['not_read'][0])})"
              for rid, rec in rules["endpoints"].items() if rec["not_read"]][:20]

@@ -7,7 +7,7 @@ from .source import paren_args, read_source
 
 ALIAS_RE = re.compile(r"\bconst\s+(\w+)\s*=\s*\(\s*\)\s*=>\s*Roles\(")
 AS_RE = re.compile(r"\b(\w+)\s+as\s+(\w+)\b")
-IMPORT_RE = re.compile(r"import\s*(?:type\s*)?\{[^}]*\}")
+IMPORT_RE = re.compile(r"import\s*(?:type\s*)?\{[^}]{0,2000}\}")
 DECORATOR_RE = re.compile(r"@(\w+)\s*\(")
 CLASS_RE = re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+\w+")
 FAIL_CLOSED_RE = re.compile(r"!\s*\w+\s*\|\|\s*\w+\.length\s*===\s*0\s*\)\s*\{\s*throw")
@@ -86,6 +86,9 @@ def read_roles(rel, text, line, index, aliases, fail_closed="unknown"):
             expr = args if name == "Roles" else aliases[name][0]
             got = None if expr is None else index.expand(expr)
             source = f"{rel}:{dline}"
+            if got is not None and not got[0]:
+                return {"status": "not_read", "roles": None, "authenticated": False, "via": [], "source": source,
+                        "reason": f"@{name}() lists no roles (the guard treats that as no declaration)"}
             if got is None:
                 return {"status": "not_read", "roles": None, "authenticated": False, "via": [], "source": source,
                         "reason": f"the role list behind @{name}() could not be resolved"}

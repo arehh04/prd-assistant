@@ -103,7 +103,13 @@ def _find_handler(tree, line):
 
 
 def _names(ann):
+    if isinstance(ann, ast.Subscript) and member(ann.value) == "Annotated" and isinstance(ann.slice, ast.Tuple):
+        return _names(ann.slice.elts[0])   # the metadata (Depends(...), Field(...)) is not a type
     return [n.id for n in ast.walk(ann) if isinstance(n, ast.Name)]
+
+
+def _has_dependency(ann):
+    return any(isinstance(n, ast.Call) and member(n.func) in ("Depends", "Security") for n in ast.walk(ann))
 
 
 def read_request(rel, tree, line, route_path, idx):
@@ -124,6 +130,8 @@ def read_request(rel, tree, line, route_path, idx):
         if marker == "Depends":
             continue
         ann = arg.annotation
+        if ann is not None and _has_dependency(ann):
+            continue
         names = _names(ann) if ann is not None else []
         if any(n in SKIP_ANNOTATIONS for n in names):
             continue

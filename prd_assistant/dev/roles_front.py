@@ -6,9 +6,9 @@ from ..mask import line_of, mask, match_brace
 from .source import line_start, read_source, scan_consts
 
 PATH_FIRST = re.compile(
-    r"""\b(?:to|path)\s*:\s*(['"])(/[^'"]*)\1(?:[^{}]|\{[^{}]*\})*?\broles\s*:\s*(\[[^\]]*\]|[A-Za-z_]\w*)""", re.S)
+    r"""\b(?:to|path)\s*:\s*(['"])(/[^'"]*)\1(?:[^{}]|\{[^{}]*\}){0,400}?\broles\s*:\s*(\[[^\]]*\]|[A-Za-z_]\w*)""", re.S)
 ROLES_FIRST = re.compile(
-    r"""\broles\s*:\s*(\[[^\]]*\]|[A-Za-z_]\w*)(?:[^{}]|\{[^{}]*\})*?\b(?:to|path)\s*:\s*(['"])(/[^'"]*)\2""", re.S)
+    r"""\broles\s*:\s*(\[[^\]]*\]|[A-Za-z_]\w*)(?:[^{}]|\{[^{}]*\}){0,400}?\b(?:to|path)\s*:\s*(['"])(/[^'"]*)\2""", re.S)
 ROLES_RE = re.compile(r"\broles\s*:\s*(\[[^\]]*\]|[A-Za-z_]\w*)")
 MAX_TABLE_FILE = 300_000
 

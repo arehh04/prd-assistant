@@ -12,6 +12,7 @@ MOD_RE = re.compile(r"\s*\.\s*(\w+)\s*\(")
 FORMATS = {"email", "url", "uuid", "cuid", "cuid2", "ulid", "datetime", "ip", "date", "time"}
 PIPE_RE = re.compile(r"@(Body|Query|Param)\(\s*(?:(['\"])(\w+)\2\s*,\s*)?new\s+ZodValidationPipe\(\s*(\w+)\s*\)\s*\)")
 NAMED_RE = re.compile(r"@(Body|Query|Param)\(\s*(['\"])(\w+)\2")
+ANY_PARAM_RE = re.compile(r"@(Body|Query|Param|Req|Request)\(")
 LOCATION = {"Body": "body", "Query": "query", "Param": "path"}
 DTO_RE = re.compile(r"@(Body|Query)\(\s*\)\s*\w+\s*:\s*(\w+)")
 
@@ -32,9 +33,11 @@ def _apply(f, name, args):
     first = args[0] if args else ""
     second = args[1] if len(args) > 1 else ""
     msg = None
-    if name in ("min", "gte", "gt"):
+    if name in ("gt", "lt"):
+        f[name], msg = _num(first), _msg(second)    # exclusive bounds are kept apart from min/max
+    elif name in ("min", "gte"):
         f["min"], msg = _num(first), _msg(second)
-    elif name in ("max", "lte", "lt"):
+    elif name in ("max", "lte"):
         f["max"], msg = _num(first), _msg(second)
     elif name == "length":
         f["min"] = f["max"] = _num(first)
@@ -58,11 +61,12 @@ def _apply(f, name, args):
 def _field(name, chain, rel, line):
     f = {"name": name, "required": True, "type": None, "min": None, "max": None, "pattern": None, "format": None,
          "one_of": None, "messages": [], "raw": " ".join(chain.split())[:200], "source": f"{rel}:{line}"}
-    m = re.match(r"\s*z\s*\.\s*(\w+)\s*\(", chain)
+    m = re.match(r"\s*z\s*\.\s*(?:coerce\s*\.\s*)?(\w+)\s*\(", chain)
     if m:
         f["type"] = m.group(1)
         args = paren_args(chain, m.end() - 1)
         if args is None:
+            f["required"], f["partial"] = None, True
             return f
         if f["type"] == "enum":
             f["one_of"] = [s[1] for s in STR_RE.findall(args)]
@@ -80,6 +84,8 @@ def _field(name, chain, rel, line):
             break
         _apply(f, mm.group(1), split_args(args))
         pos = mm.end() + len(args) + 1
+    if chain[pos:].strip():
+        f["required"], f["partial"] = None, True   # part of the chain could not be parsed: do not claim required
     return f
 
 
@@ -157,6 +163,11 @@ def read_request(rel, text, line, schemas):
         fields.append({"name": m.group(3), "location": LOCATION[m.group(1)], "required": None, "type": None,
                        "min": None, "max": None, "pattern": None, "format": None, "one_of": None,
                        "messages": [], "raw": m.group(0) + ")", "source": source})
+    handled = {m.start() for m in PIPE_RE.finditer(params)} | {m.start() for m in NAMED_RE.finditer(params)}
     for m in DTO_RE.finditer(params):
+        handled.add(m.start())
         not_read.append(f"request class {m.group(2)} (class-validator) is not read")
+    for m in ANY_PARAM_RE.finditer(params):
+        if m.start() not in handled:
+            not_read.append(f"@{m.group(1)}(...) parameter is not understood, so its fields are not read")
     return {"source": source, "fields": fields, "not_read": not_read, "stack": "nestjs"}

@@ -107,8 +107,19 @@ def run_assemble(out_dir):
     return target
 
 
+GUIDE_STALE = ("scaffold.md", "slots.template.json", "manifest.json", "guide_summary.json", "client-guide.md")
+DEV_STALE = ("scaffold.md", "slots.template.json", "manifest.json", "dev_summary.json", "developer-guide.md",
+             "roles.json", "form_rules.json", "error_messages.json", "dev_gate.json", "dev_gate.md")
+
+
+def _remove_stale(directory, names):
+    for name in names:
+        (Path(directory) / name).unlink(missing_ok=True)   # a failed run must not leave an older guide to assemble
+
+
 def guide_prepare(repo, out_dir, today=None):
     out = Path(out_dir)
+    _remove_stale(out / "guide", GUIDE_STALE)
     facts_path, gate_path = out / "facts.json", out / "gate.json"
     if not facts_path.is_file() or not gate_path.is_file():
         raise FileNotFoundError(f"{out} has no facts.json/gate.json; run bin/prd_facts.py first")
@@ -125,8 +136,6 @@ def guide_prepare(repo, out_dir, today=None):
         raise ValueError("no screens were extracted; the client guide needs a frontend")
     repo = repo.resolve()
     gdir = out / "guide"
-    for stale in ("scaffold.md", "slots.template.json", "manifest.json", "guide_summary.json", "client-guide.md"):
-        (gdir / stale).unlink(missing_ok=True)  # a failed run must not leave an older guide to assemble
     count_module.reset_unreadable()
     ui = ui_text.build(repo, facts)
     jr = journeys.build(facts, ui)
@@ -159,6 +168,7 @@ def guide_prepare(repo, out_dir, today=None):
 
 def dev_prepare(repo, out_dir, today=None):
     out = Path(out_dir)
+    _remove_stale(out / "dev", DEV_STALE)
     facts_path, gate_path = out / "facts.json", out / "gate.json"
     if not facts_path.is_file() or not gate_path.is_file():
         raise FileNotFoundError(f"{out} has no facts.json/gate.json; run bin/prd_facts.py first")
@@ -175,8 +185,6 @@ def dev_prepare(repo, out_dir, today=None):
         raise ValueError("no routes were extracted; the developer guide needs a backend")
     repo = repo.resolve()
     ddir = out / "dev"
-    for stale in ("scaffold.md", "slots.template.json", "manifest.json", "dev_summary.json", "developer-guide.md"):
-        (ddir / stale).unlink(missing_ok=True)  # a failed run must not leave an older guide to assemble
     count_module.reset_unreadable()
     ui = ui_text.build(repo, facts) if facts["screens"] else {"screens": {}}
     links_result = links.link(repo, facts)

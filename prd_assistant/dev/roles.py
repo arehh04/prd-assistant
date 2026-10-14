@@ -23,14 +23,14 @@ def mismatches(screens, endpoints, joined):
         screen_roles = {_norm(r): r for r in rec["roles"]}
         for rid in joined.get(sid, []):
             e = endpoints.get(rid)
-            if not e or e["status"] != "read" or e["roles"] is None:
+            if not e or e["status"] != "read" or not e["roles"]:
                 continue
             allowed = {_norm(r) for r in e["roles"]}
             refused = sorted(v for k, v in screen_roles.items() if k not in allowed)
             if refused:
                 out.append({"screen": sid, "endpoint": rid, "screen_roles": rec["roles"],
                             "endpoint_roles": e["roles"], "refused_roles": refused,
-                            "detail": "these roles can open the screen but the endpoint it calls refuses them"})
+                            "detail": "these roles can open the screen, and an endpoint called from its files or from files they import (up to 2 hops) refuses them"})
     return out
 
 
@@ -42,6 +42,12 @@ class _Context:
         self.closed = roles_nest.fail_closed(repo_root)
         self.pyidx = PyIndex(repo_root)
         self._text = {}
+        self._prepared = {}
+
+    def prepared(self, rel, text):
+        if rel not in self._prepared:
+            self._prepared[rel] = roles_laravel.prepare(text)
+        return self._prepared[rel]
 
     def text(self, rel):
         if rel not in self._text:
@@ -68,7 +74,7 @@ def _endpoint(route, ctx):
         routes_text = ctx.text(route["file"])
         if routes_text is None:
             return _not_read(handler["source"], "the routes file could not be read")
-        rec = roles_laravel.read_roles(route["file"], routes_text, route["line"])
+        rec = roles_laravel.read_roles(route["file"], routes_text, route["line"], ctx.prepared(route["file"], routes_text))
         rec["checks"] = roles_laravel.handler_checks(text, line)
         rec["stack"] = "laravel"
     else:
