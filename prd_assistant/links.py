@@ -41,14 +41,17 @@ def _score(call_segs, route_segs):
     return (static, both)
 
 
-def _best(call_segs, method, routes):
+def _best(call_segs, method, routes, suffix=False):
     best, ids = None, []
     for r in routes:
         if method and r["method"] not in (method, "ALL"):
             continue
-        score = _score(call_segs, r["segs"])
-        if score is None:
+        if suffix and len(r["segs"]) < len(call_segs):
             continue
+        route_segs = r["segs"][len(r["segs"]) - len(call_segs):] if suffix else r["segs"]
+        score = _score(call_segs, route_segs)
+        if score is None or (call_segs and score[0] == 0):
+            continue  # a match must share at least one static segment (except the root path)
         if best is None or score > best:
             best, ids = score, [r["id"]]
         elif score == best:
@@ -57,10 +60,16 @@ def _best(call_segs, method, routes):
 
 
 def match_call(call_segs, method, routes, prefix):
+    call_segs = tuple(call_segs)
+    if call_segs and all(s == WILD for s in call_segs):
+        return "dynamic", [], False  # nothing static to match on
     ids = _best(call_segs, method, routes)
     via_prefix = False
-    if not ids and prefix:
-        ids = _best(tuple(prefix) + tuple(call_segs), method, routes)
+    if not ids and call_segs and call_segs[0] == WILD:
+        # a leading ${BASE_URL}-style segment stands for an unknown base path: match the end of the route
+        ids = _best(call_segs[1:], method, routes, suffix=True)
+    elif not ids and prefix:
+        ids = _best(tuple(prefix) + call_segs, method, routes)
         via_prefix = bool(ids)
     if not ids:
         return "unmatched", [], False

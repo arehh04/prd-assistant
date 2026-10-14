@@ -56,5 +56,38 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(links.match_call(links.segments("/hook"), "POST", any_route, ())[0], "matched")
 
 
+class BaseUrlTests(unittest.TestCase):
+    """Calls whose path starts with an interpolated base URL or constant, or has no static part at all."""
+    R = routes(("login", "POST", "/api/v1/auth/login"), ("drv", "GET", "/api/v1/connectors/drivers"),
+               ("up1", "POST", "/api/v1/jd/upload"), ("up2", "POST", "/api/v1/searches/upload"),
+               ("one", "GET", "/api/v1/users/{id}"), ("two", "GET", "/api/v1/teams/{id}"),
+               ("param", "GET", "/{tenant}/rooms"))
+
+    def match(self, path, method="GET", prefix=("api", "v1")):
+        return links.match_call(links.segments(path), method, self.R, prefix)
+
+    def test_all_wildcard_call_is_dynamic_not_ambiguous(self):
+        self.assertEqual(self.match("/${USERS_URL}/${userId}"), ("dynamic", [], False))
+        self.assertEqual(self.match("/{$list}?{$query}"), ("dynamic", [], False))
+
+    def test_leading_base_url_matches_the_end_of_the_route(self):
+        self.assertEqual(self.match("/${API_BASE_URL}/api/v1/auth/login", "POST"), ("matched", ["login"], False))
+        self.assertEqual(self.match("/${CONNECTORS_URL}/drivers"), ("matched", ["drv"], False))
+
+    def test_leading_base_url_with_a_shared_tail_is_ambiguous(self):
+        self.assertEqual(self.match("/${SEARCHES_URL}/upload", "POST"), ("ambiguous", ["up1", "up2"], False))
+
+    def test_a_leading_route_parameter_still_matches_normally(self):
+        self.assertEqual(self.match("/${tenantId}/rooms"), ("matched", ["param"], False))
+
+    def test_the_root_path_still_matches_the_root_route(self):
+        root = routes(("root", "GET", "/"), ("other", "GET", "/health"))
+        self.assertEqual(links.match_call(links.segments("/"), "GET", root, ()), ("matched", ["root"], False))
+
+    def test_a_candidate_must_share_a_static_segment(self):
+        # "/x/${id}" has a static part, but the only 2-segment route is /{tenant}/rooms: nothing static in common
+        self.assertEqual(self.match("/x/${id}")[0], "unmatched")
+
+
 if __name__ == "__main__":
     unittest.main()
