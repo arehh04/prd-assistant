@@ -235,3 +235,34 @@ Commands: `python3 -I bin/prd_criteria.py build <repo> --state-dir ~/research/pr
 ### After the final review (slice 4)
 
 The fresh whole-branch review found no critical issue and these important ones, closed test-first: the freshness fingerprint did not notice edits to quoted or non-ASCII paths, a repo argument that is a subdirectory, commits inside a nested repository, or a same-size rewrite that keeps its mtime; a corrupt `meta.json` or `criteria.json` gave a traceback (and the draft only handles exit 0, 2 and 3) or never healed; leftover `.old-*` and `.build-*` directories and a cache swapped away between check and read broke rebuilds; the derived-refusal wording claimed more than is known; `show` printed hostile text unescaped. Still open (documented): facts built from a CodeGraph database that lags the working tree are marked fresh, `TOOL_VERSION` is bumped by hand, and git-ignored files are invisible to the fingerprint.
+
+## Slice 5 (MCP server), 2026-10-14
+
+Command: `python3 -I bin/prd_mcp.py --root <folder> [--root ...] [--state-dir DIR]`; setup for each client in `docs/mcp-setup.md`.
+
+### A real session over pipes (Urus, roots `~/research/targets`)
+
+| Call | Result |
+|---|---|
+| `initialize` (2025-06-18) | accepted; four tools listed by `tools/list` |
+| `repo_status` before any build | `Cache: missing`, "There is no cache yet: the next lookup builds it"; the state directory was not created |
+| `criteria_build` | built in about 2 seconds: error 67, field 114, request_unread 4, role 78, role_refused 67, screen_roles 13 at commit `346c788` |
+| `repo_status` after | `Cache: fresh`, commit, CodeGraph commit, gate verdicts, counts |
+| `criteria_lookup` "let managers approve payroll" | the same candidates as the CLI (`POST /api/v1/payroll/:id/approve`, `MANAGER` derived as not in the role list) |
+| `repo_status` on `/home/arep` | error result: "outside the allowed roots. Start the server with --root DIR (repeatable) or set PRD_MCP_ROOTS ..., or use --allow-any-repo." |
+
+`tests/test_mcp_compare.py` compares the text of `criteria_lookup` with the CLI's output for room-management (ignoring the two lines that carry the age and cache path).
+
+### Client snippets
+
+All four registration formats were checked on 2026-10-14 against the official pages (Claude Code, Codex, Cline, Kiro); each section of `docs/mcp-setup.md` records its source. Notes from the check: Codex's docs moved to `learn.chatgpt.com`; Cline's field for auto-approved tools is `autoApprove`; Kiro merges the workspace and user files with the workspace winning.
+
+### Decisions found while building
+
+1. A working directory of `/` is never used as the default root (the plan's own process test showed that a server started from `/` would otherwise accept every repo on the machine). An explicit `--root /` is respected.
+2. The repo string echoed in an error goes through `text_cell` (escapes `<`, brackets, pipes), not `esc`.
+
+### Known limits
+
+- One request at a time; a first build can outlast a client's tool timeout (call `repo_status`, then `criteria_build` once).
+- Facts describe the files at the last build; `repo_status` states freshness, the commit and the age.

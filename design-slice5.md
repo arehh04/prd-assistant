@@ -113,3 +113,12 @@ Each snippet's format is checked against the client's current documentation when
 - Client tool timeouts: a first build may exceed them; documented, and `repo_status` tells the model that a build is coming.
 - Clients differ in how they pass arguments and environment; both `--root` and `PRD_MCP_ROOTS` are supported for that reason.
 - `structuredContent` without an `outputSchema` is allowed; clients that validate strictly might want a schema. None is declared in this slice.
+
+## Amendments from the slice 5 plan and calibration (2026-10-14)
+
+1. `criteria_cache.ensure_bank` (new) builds or reuses the cache, retries the read once if a concurrent rebuild swapped it away, and validates the bank; both the CLI and the server call it.
+2. `lookup.render_status` (new) prints the `repo_status` Markdown; the structured copy is the dict from `criteria_cache.status`, which never builds and never creates a directory.
+3. `Session` and `Config` are small classes in `mcp_server.py`; input validation is driven by each tool's own `inputSchema`.
+4. Roots precedence is `--root` values, otherwise `PRD_MCP_ROOTS`, otherwise the working directory, as specified; a working directory that is the filesystem root is not used as a default root.
+5. Repo strings echoed in error messages are escaped with `scaffold.text_cell` and clipped to 300 characters.
+6. All four registration snippets were checked against the clients' official documentation on 2026-10-14 (see `docs/mcp-setup.md`).
