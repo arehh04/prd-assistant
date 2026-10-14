@@ -231,3 +231,7 @@ Commands: `python3 -I bin/prd_criteria.py build <repo> --state-dir ~/research/pr
 - Ids (`C-ROLE-014`) are only valid for the commit printed beside them.
 - Derived refusals depend on the role universe (the roles seen on read endpoints of the same stack). A stack where one role never appears on a read endpoint cannot be refused it.
 - Typed API clients leave screens unjoined (0 of 15 on Urus), so mismatch candidates are rare there.
+
+### After the final review (slice 4)
+
+The fresh whole-branch review found no critical issue and these important ones, closed test-first: the freshness fingerprint did not notice edits to quoted or non-ASCII paths, a repo argument that is a subdirectory, commits inside a nested repository, or a same-size rewrite that keeps its mtime; a corrupt `meta.json` or `criteria.json` gave a traceback (and the draft only handles exit 0, 2 and 3) or never healed; leftover `.old-*` and `.build-*` directories and a cache swapped away between check and read broke rebuilds; the derived-refusal wording claimed more than is known; `show` printed hostile text unescaped. Still open (documented): facts built from a CodeGraph database that lags the working tree are marked fresh, `TOOL_VERSION` is bumped by hand, and git-ignored files are invisible to the fingerprint.
