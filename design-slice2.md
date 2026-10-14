@@ -171,3 +171,5 @@ Not checked, stated plainly in the PRD footer: whether the prose is true or well
 - The majority-prefix rule is a heuristic. A repo with two equally large API roots would put one of them in `(root)`. The scaffold prints the chosen prefix so this is visible.
 - Model cost grows with the number of feature groups on a large repo (one slot per group); the batch size of 10 is a first guess to be tuned.
 - The prose is only as good as the evidence slice it gets. Quality of `purpose` sentences is judged by a human, not by lint.
+10. A call whose path has no static segment is `dynamic`; a match must share at least one equal static segment (the root path is exempt); a leading interpolated segment (a base URL or URL constant) is matched against the end of a route. Found by calibration on `tis`.
+11. Test files inside a frontend package (a non-root directory whose package.json lists a router) are not counted as backend HTTP tests, because they exercise a mocked client. Found by calibration on room-management.

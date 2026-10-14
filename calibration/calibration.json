@@ -3,20 +3,87 @@
     "rms": {
       "path": "/home/arep/research/targets/room-management-system",
       "use_adapters": true,
-      "expect": {"verdict": "WARN", "routes_extracted": 66, "routes_independent": 66,
-                 "screens_extracted": 17, "screens_independent": 18}
+      "expect": {
+        "verdict": "WARN",
+        "routes_extracted": 66,
+        "routes_independent": 66,
+        "screens_extracted": 17,
+        "screens_independent": 18
+      },
+      "expect_draft": {
+        "frontend": {
+          "ambiguous": 0,
+          "call_sites": 4,
+          "dynamic": 0,
+          "ignored_candidates": 3,
+          "matched": 3,
+          "matched_via_prefix": 3,
+          "unmatched": 1
+        },
+        "prefix": [
+          "api",
+          "v1"
+        ],
+        "route_groups": 13,
+        "screen_groups": 6,
+        "tests": {
+          "ambiguous": 12,
+          "call_sites": 1996,
+          "dynamic": 296,
+          "ignored_candidates": 149,
+          "matched": 1671,
+          "matched_via_prefix": 0,
+          "unmatched": 17
+        }
+      }
     },
     "rms-noadapter": {
       "path": "/home/arep/research/targets/room-management-system",
       "use_adapters": false,
-      "expect": {"verdict": "FAIL", "routes_extracted": 0, "routes_independent": 66,
-                 "screens_extracted": 17, "screens_independent": 18}
+      "expect": {
+        "verdict": "FAIL",
+        "routes_extracted": 0,
+        "routes_independent": 66,
+        "screens_extracted": 17,
+        "screens_independent": 18
+      }
     },
     "urus": {
       "path": "/home/arep/research/targets/Urus",
       "use_adapters": true,
-      "expect": {"verdict": "PASS", "routes_extracted": 78, "routes_independent": 78,
-                 "screens_extracted": 15, "screens_independent": 15}
+      "expect": {
+        "verdict": "PASS",
+        "routes_extracted": 78,
+        "routes_independent": 78,
+        "screens_extracted": 15,
+        "screens_independent": 15
+      },
+      "expect_draft": {
+        "frontend": {
+          "ambiguous": 0,
+          "call_sites": 1,
+          "dynamic": 0,
+          "ignored_candidates": 3,
+          "matched": 1,
+          "matched_via_prefix": 0,
+          "unmatched": 0
+        },
+        "prefix": [
+          "api",
+          "v1"
+        ],
+        "route_groups": 14,
+        "screen_groups": 11,
+        "tests": {
+          "ambiguous": 0,
+          "call_sites": 4,
+          "dynamic": 0,
+          "ignored_candidates": 8,
+          "matched": 0,
+          "matched_via_prefix": 0,
+          "unmatched": 4
+        }
+      }
     }
   }
 }
