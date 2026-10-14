@@ -142,3 +142,48 @@ Followed `skills/client-guide-from-code/SKILL.md` as the model: 16 slots (1 over
 - Lint rounds needed: **0**; `client-guide.md` assembled (967 lines, 15 screens, equal to the number of screens in the PRD facts).
 - Caveat: same session that wrote the lint rules, so a first-run pass is weak evidence about lint strength. The strength evidence is the negative tests (jargon in prose, jargon inside quotes and citations, look-alike words, hostile UI text).
 - A client might find odd: developer-flavored visible text such as `Fastify Guard:`, a screen heading list that includes "Not available for your role" (from a role-gate component imported by the home page), and fragment texts. The guide is faithful to the code, not curated.
+
+
+## Slice 3b (developer guide), 2026-10-14
+
+Commands: `python3 -I bin/prd_facts.py <repo> --out ~/research/prd-out4/<name>` then `python3 -I bin/prd_draft.py dev-prepare <repo> --out ~/research/prd-out4/<name>`.
+Numbers are from each run's `dev/dev_summary.json` after the fixes listed below.
+
+| Repo | Routes | Roles read / public / undeclared / not read | Request routes read | Raise sites attached | Screens joined to endpoints | Mismatches (roles / limits) | Dev gate |
+|---|---|---|---|---|---|---|---|
+| room-management (Laravel + Vue) | 66 | 63 / 0 / 3 / 0 | 38 of 53 | 49 of 118 | 9 of 17 | 0 / 0 | WARN |
+| Urus (NestJS + React) | 78 | 73 / 5 / 0 / 0 | 58 of 60 | 67 of 250 | 0 of 15 | 0 / 0 | WARN |
+| tis (FastAPI + React), not golden | 137 | 117 / 0 / 20 / 0 | 109 of 111 | 143 of 248 | 20 of 21 | 0 / 0 | WARN |
+
+### Defects found by calibration and fixed (all test-first)
+
+1. **First run: the dev gate FAILed on all three repos.**
+   - `tis`: 117 of 137 endpoints were `not_read` because service and session factories passed to `Depends(...)` (`_get_service`, `get_db`) were treated as unreadable guards. They are plumbing; an endpoint with only plumbing is now `undeclared (open)` with a note naming the dependencies, and plumbing no longer hides a real guard next to it.
+   - All three: `message_attachment` (raise sites attached over all raise sites) was below 0.50 because most raise sites sit in services more than one call deep, a stated non-goal. That check is now capped at `WARN` and never stops a run.
+2. **room-management raises through static factories** (`throw ApiException::businessRule('CODE', 'message')`; the status is in the factory's `new self(422, ...)`). 3 of 20 sites were attached; the PHP extractor now reads the factory class, so the status, code and message come from the factory plus the call arguments (49 messages attached).
+3. **`UploadFile`/`File(...)`/`Form(...)`** parameters on `tis` were reported as an unknown model; they are body fields.
+4. **0 of 15 Urus screens were joined to an endpoint**, so no role or limit mismatch could ever be reported. Two causes: the join only looked at a screen's slice 3 evidence files (page and direct imports) while API calls sit in an api layer two imports away (now followed 2 further hops), and Urus uses a typed client (`api.payroll.list(...)`) that the slice 2 linker does not recognise (1 frontend call site found in the whole app). The second is not fixed; the guide and the summary now say how many screens were joined, so a silent mismatch check is not read as "no mismatches".
+
+### Hand checks against the real code
+
+- Urus `POST /api/v1/payroll/calculate`: roles `FINANCE, ADMIN` (from `@FinanceWrite()` through the `MONEY_WRITE` list in `@urus/types`); fields `period`, `workerId`, `employeeId` from `CalculatePayrollSchema`. `GET /api/v1/payroll`: all five roles (`@Authenticated()`).
+- room-management `POST /api/v1/auth/login`: undeclared (open) with fields `email`, `password`; `GET /api/v1/branches`: `super_admin, branch_admin` with the `viewAny` ability; `PATCH /api/v1/houses/{house}`: `super_admin, branch_admin`, authorize check `move`, fields from the spread helper (`city`, `state`, `postcode`, `notes`, ...).
+- `tis` `DELETE /api/v1/users/{user_id}`: roles `admin, developer` (from `require_admin` and `ADMIN_LIKE_TYPES`). The 20 undeclared endpoints are the open ones (`/health`, `/docs`, `/openapi.json`, `/api/v1/auth/login`, ...).
+
+### Known limitations (documented, not fixed)
+
+- Typed API clients (`api.payroll.list()`) are not linked to routes, so screens of such apps are not joined and mismatches are not checked for them.
+- `tis` has no frontend role table or `meta.roles`; its 21 screens are all `not_read` for roles.
+- Laravel: `permission:`/`ability:` middleware, controller-constructor middleware, and rules inherited from a base `rules()` (list requests: 15 of 53 request routes on room-management) are not read. Variable spreads of rule arrays (`...$required`) are not followed.
+- NestJS: class-validator DTOs (`LoginInput`) and a schema defined more than once are not read. Messages in services more than one call deep are not attached (Urus: 67 of 250 raise sites).
+- FastAPI: router-level `dependencies=` are noted, not followed; validators are noted, not read.
+- Hand-written input checks and messages computed at run time are not read.
+
+### The full loop on Urus (acceptance run)
+
+Followed `skills/developer-guide-from-code/SKILL.md` as the model: 15 slots (1 overview and 14 route groups; 3 answered `NEEDS HUMAN INPUT` because their evidence is a single "anyone" line or does not state a purpose), then `verify`, then `assemble`.
+
+- Lint rounds needed: **0**; `developer-guide.md` assembled (264 lines, 14 groups, equal to the number of route groups in the facts).
+- `POST /api/v1/payroll/calculate` appears with roles `FINANCE, ADMIN` and the three zod fields; no table cell contains an unescaped `<`.
+- Caveat: same session that wrote the lint rules, so a first-run pass is weak evidence about lint strength. The strength evidence is the negative tests (hostile message text, quotes not in the cited evidence).
+- What a reader should know: the guide says 0 of 15 screens were joined to endpoints, so its mismatch tables are empty because nothing was checked, not because nothing differs.

@@ -36,6 +36,14 @@ class SkillFileTests(unittest.TestCase):
                        "banned_terms", "at most 2", "NEEDS HUMAN INPUT", "OUT/guide"):
             self.assertIn(needle, text)
 
+    def test_developer_guide_skill(self):
+        meta, text = frontmatter(ROOT / "skills" / "developer-guide-from-code" / "SKILL.md")
+        self.assertEqual(meta["name"], "developer-guide-from-code")
+        self.assertTrue(meta["description"].startswith("Use when"))
+        for needle in ("dev-prepare", "prd_draft.py verify", "prd_draft.py assemble", "developer-guide.md",
+                       "at most 2", "NEEDS HUMAN INPUT", "OUT/dev", "not_read"):
+            self.assertIn(needle, text)
+
 
 if __name__ == "__main__":
     unittest.main()

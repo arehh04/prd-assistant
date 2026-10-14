@@ -125,3 +125,14 @@ A FAIL stops before any scaffold is written and removes older outputs (no stale 
 - tis's f-string messages: template extraction must keep the fixed parts exact without evaluating code.
 - Mismatch detection is only as good as the screen-to-endpoint links from slice 1; screens with no link produce no mismatch claims.
 - Guard patterns outside the listed ones are `not_read`; the gate shows how much that costs per repo.
+
+## Amendments from the slice 3b plan and calibration (2026-10-14)
+
+1. **Screen-to-endpoint join.** `facts.json` has no such links. A screen is joined to a route when `links.link()` finds a frontend call to it in the screen's slice 3 evidence files or in files they import, up to 2 further hops (at most 300 files per screen). Typed API clients (`api.payroll.list()`) are not recognised by the slice 2 linker, so those screens are not joined; the guide's first page and `dev_summary.json` state how many screens were joined.
+2. **Record fields.** Role records carry `authenticated`, `undeclared_means` (`denied`, `open` or `unknown`, per stack) and `notes`; request fields carry `messages[]`; Laravel messages from static factories carry `code`.
+3. **FastAPI roles** are read from the dependency function's body with `ast`. A dependency that is found and read but contains no role or sign-in check is plumbing (an endpoint with only plumbing is `undeclared (open)` with a note); a dependency that cannot be found or depends on one that cannot be read makes the endpoint `not_read`.
+4. **The dev gate's `message_attachment` check is graded `PASS`/`WARN`/`INFO` and never `FAIL`** (section 11 said FAIL below 0.50). Its denominator counts every raise site in the repo, most of which sit in services more than one call deep, a stated non-goal; a FAIL there stopped all three calibration repos although roles and rules were fine.
+5. **Messages raised through static factories** (`throw ApiException::businessRule('CODE', 'message')`) are read through the factory class (status from `new self(<status>, ...)`, code and message from the call or the factory defaults).
+6. **Parameters:** `@Param` maps to location `path`; FastAPI `File(...)`/`Form(...)` are body fields.
+7. **Constant index** is TypeScript only; names defined in more than one file are ambiguous and resolve to `not_read`, never to a guess.
+8. **Calibration answers to the open questions (section 14):** room-management declares roles as `Route::middleware('role:...')->group(...)` nested in an `auth:sanctum` group; Urus links zod through `@Body(new ZodValidationPipe(Schema))` and gates screens through a `NAV_ITEMS` table with longest-prefix match; `tis` uses `Depends(require_admin_user)`-style dependency functions.

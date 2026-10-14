@@ -55,6 +55,34 @@
         "unresolved": 0,
         "verdict": "PASS",
         "with_text": 17
+      },
+      "expect_dev": {
+        "messages": {
+          "count": 49,
+          "sites_attached": 49,
+          "sites_total": 118
+        },
+        "mismatches": {
+          "roles": 0,
+          "rules": 0
+        },
+        "requests": {
+          "not_read": 15,
+          "read": 38,
+          "takes_input": 53
+        },
+        "roles": {
+          "not_read": 0,
+          "public": 0,
+          "read": 63,
+          "undeclared": 3
+        },
+        "routes": 66,
+        "screens": {
+          "joined": 9,
+          "total": 17
+        },
+        "verdict": "WARN"
       }
     },
     "rms-noadapter": {
@@ -123,6 +151,34 @@
         "unresolved": 0,
         "verdict": "PASS",
         "with_text": 15
+      },
+      "expect_dev": {
+        "messages": {
+          "count": 67,
+          "sites_attached": 67,
+          "sites_total": 250
+        },
+        "mismatches": {
+          "roles": 0,
+          "rules": 0
+        },
+        "requests": {
+          "not_read": 2,
+          "read": 58,
+          "takes_input": 60
+        },
+        "roles": {
+          "not_read": 0,
+          "public": 5,
+          "read": 73,
+          "undeclared": 0
+        },
+        "routes": 78,
+        "screens": {
+          "joined": 0,
+          "total": 15
+        },
+        "verdict": "WARN"
       }
     }
   }
