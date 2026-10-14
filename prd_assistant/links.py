@@ -193,8 +193,12 @@ def frontend_roots(repo_root):
 def collect_calls(repo_root, side):
     calls, ignored = [], []
     if side == "tests":
+        # Tests inside a frontend package exercise a mocked client, not the backend routes. (A frontend
+        # package at the repo root would hide every test, so it is not used for this exclusion.)
+        client_roots = [r for r in frontend_roots(repo_root) if r]
         files = [(rel, full) for rel, full in count.iter_files(repo_root, tuple(LANGUAGE_BY_SUFFIX), include_tests=True)
-                 if paths.exclusion_reason(rel) == "test" and not rel.endswith(".vue")]
+                 if paths.exclusion_reason(rel) == "test" and not rel.endswith(".vue")
+                 and not any(rel.startswith(r + "/") for r in client_roots)]
     else:
         roots = frontend_roots(repo_root)
         files = [(rel, full) for rel, full in count.iter_files(repo_root, tuple(LANGUAGE_BY_SUFFIX))

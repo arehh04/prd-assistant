@@ -102,6 +102,19 @@ class LinkTests(unittest.TestCase):
         files = {(e["file"], e["line"]) for e in result["routes"]["R1"]["http_tests"]}
         self.assertIn(("tests/test_win.py", 3), files)
 
+    def test_frontend_unit_tests_are_not_backend_http_tests(self):
+        write(self.root, "web/src/api.spec.ts", "it('x', () => { http.get('/api/v1/teams') })\n")
+        result = links.link(self.root, FACTS)
+        self.assertEqual(result["tests"]["totals"]["call_sites"], 5)  # unchanged: the spec file is not counted
+        self.assertEqual(result["routes"]["R1"]["http_tests"], [{"file": "tests/test_api.py", "line": 2}])
+
+    def test_a_root_level_frontend_package_does_not_hide_all_tests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "package.json", '{"dependencies": {"vue-router": "4"}}')
+            write(tmp, "tests/test_api.py", TEST_PY)
+            result = links.link(tmp, FACTS)
+        self.assertEqual(result["tests"]["totals"]["call_sites"], 5)
+
     def test_repo_without_tests_or_frontend_has_zero_totals(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = links.link(tmp, FACTS)
