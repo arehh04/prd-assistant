@@ -173,3 +173,5 @@ Decided while planning, from evidence gathered on the calibration repos. The pla
 5. The opt-in `php artisan route:list` cross-check stays out of slice 1 because it runs project code.
 
 6. Slice 2 (PRD draft) is specified in `design-slice2.md`: scaffold plus prose slots, an HTTP-test linker, and a lint script. It refines section 7 above.
+
+7. Slice 3 (client guide) is specified in `design-slice3.md`: screen text extraction, journeys, a guide scaffold with a jargon-free slot lint, and a guide gate. The developer version (roles, form rules, backend messages) is a later slice.
