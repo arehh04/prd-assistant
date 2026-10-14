@@ -446,3 +446,136 @@ def _vue_items(text, rel):
         script = Source(text[s0:s1])
         items += message_items(script.code, script.blanked, lambda p, base=s0: line_at(base + p), rel)
     return _finish(items)
+
+
+MAX_FILES = 40
+I18N_PACKAGES = ("react-i18next", "i18next", "vue-i18n", "@lingui/core")
+I18N_CALL_RE = re.compile(r"""(?<![\w$.])\$?t\(\s*['"][\w.:\-]+['"]""")
+LOOSE_STRING_RE = re.compile(r"""(['"`])([A-Za-z][^'"`\n]*\s[^'"`\n]*)\1""")
+NOT_TEXT_CONTEXT_RE = re.compile(r"(className|class|import|from|require|style|href|src|alias)[^\n]{0,25}$")
+
+
+def _read_ui_file(repo_root, rel):
+    full = Path(repo_root) / rel
+    if full.is_symlink() or not full.is_file() or paths.exclusion_reason(rel):
+        return None
+    if full.stat().st_size > MAX_FILE_BYTES:
+        count.mark_unreadable(full)
+        return None
+    return count.read_text(full)
+
+
+def _depth1_imports(repo_root, rel, text, aliases_for):
+    base_dir = Path(rel).parent.as_posix()
+    _, specs = parse_imports(text)
+    found = []
+    for spec in specs:
+        target = resolve_module(spec, base_dir, aliases_for(base_dir), repo_root)
+        if target and target != rel and target.endswith(UI_SUFFIXES) and not paths.exclusion_reason(target):
+            found.append(target)
+    return list(dict.fromkeys(found))
+
+
+def _skipped(text, rel, taken):
+    out = []
+    for m in LOOSE_STRING_RE.finditer(text):
+        value = _norm(m.group(2))
+        if value in taken or not _has_letter(value):
+            continue
+        before = text[max(0, m.start() - 40):m.start()].split("\n")[-1]
+        if NOT_TEXT_CONTEXT_RE.search(before):
+            continue
+        out.append({"file": rel, "line": text.count("\n", 0, m.start()) + 1, "text": value[:120]})
+    return out
+
+
+def build(repo_root, facts):
+    repo_root = Path(repo_root)
+    alias_cache, router_cache = {}, {}
+
+    def aliases_for(directory):
+        if directory not in alias_cache:
+            alias_cache[directory] = load_aliases(repo_root, directory)
+        return alias_cache[directory]
+
+    resolved = {}
+    for screen in facts["screens"]:
+        router = screen["file"]
+        if router not in router_cache:
+            router_cache[router] = Source(count.read_text(repo_root / router))
+        info = resolve_component(screen, router_cache[router], aliases_for(Path(router).parent.as_posix()), repo_root)
+        resolved[screen["id"]] = (screen, info)
+
+    texts, imports = {}, {}
+    for sid, (screen, info) in resolved.items():
+        if info["status"] == "unresolved":
+            continue
+        for cand in info["candidates"]:
+            rel = cand["file"]
+            if rel and rel not in texts:
+                texts[rel] = _read_ui_file(repo_root, rel)
+            if rel and texts.get(rel) is not None:
+                imports.setdefault(rel, _depth1_imports(repo_root, rel, texts[rel], aliases_for))
+
+    live = [sid for sid, (_, info) in resolved.items() if info["status"] != "unresolved"]
+    own_files, used_by = {}, {}
+    for sid in live:
+        info = resolved[sid][1]
+        component_files = [c["file"] for c in info["candidates"] if c["file"]]
+        extra = []
+        for rel in component_files:
+            extra += [f for f in imports.get(rel, []) if f not in component_files]
+        own_files[sid] = (component_files, list(dict.fromkeys(extra)))
+        for f in set(own_files[sid][1]):
+            used_by[f] = used_by.get(f, 0) + 1
+    shared = sorted(f for f, n in used_by.items() if n >= 3 and n > len(live) / 3)
+
+    def items_for(rel):
+        if rel not in texts:
+            texts[rel] = _read_ui_file(repo_root, rel)
+        return extract_items(texts[rel], rel) if texts[rel] is not None else []
+
+    screens_out, all_taken = {}, {}
+    for sid, (screen, info) in resolved.items():
+        files, truncated, items = [], False, []
+        if sid in own_files:
+            component_files, extra = own_files[sid]
+            files = component_files + [f for f in extra if f not in shared]
+            if len(files) > MAX_FILES:
+                files, truncated = files[:MAX_FILES], True
+            for rel in files:
+                items += items_for(rel)
+            if info["title"]:
+                items.append({"kind": "title", "text": info["title"]["text"], "file": screen["file"],
+                              "line": info["title"]["line"]})
+            if len(items) > MAX_ITEMS:
+                items, truncated = items[:MAX_ITEMS], True
+        screens_out[sid] = {"path": screen["path"], "status": info["status"], "component_file": info["component_file"],
+                            "candidates": info["candidates"], "files": files, "truncated": truncated, "items": items}
+        for rel in files:
+            all_taken.setdefault(rel, set()).update(i["text"] for i in items if i["file"] == rel)
+
+    shared_items = []
+    for rel in shared:
+        shared_items += items_for(rel)
+        all_taken.setdefault(rel, set()).update(i["text"] for i in shared_items if i["file"] == rel)
+
+    skipped = []
+    for rel in sorted(all_taken):
+        if texts.get(rel) is not None:
+            skipped += _skipped(texts[rel], rel, all_taken[rel])
+
+    evidence = []
+    for pkg_dir in links.frontend_roots(repo_root):
+        pkg = repo_root / pkg_dir / "package.json"
+        if pkg.is_file():
+            body = count.read_text(pkg)
+            evidence += [f"{(pkg_dir + '/' if pkg_dir else '')}package.json lists {name}"
+                         for name in I18N_PACKAGES if f'"{name}"' in body]
+    for rel in sorted(all_taken):
+        if texts.get(rel) and I18N_CALL_RE.search(texts[rel]):
+            evidence.append(f"{rel} calls t('...')")
+    return {"schema": 1, "i18n": {"detected": bool(evidence), "evidence": evidence[:10]},
+            "shared_files": [{"file": f, "used_by": used_by[f]} for f in shared],
+            "screens": screens_out, "shared_items": _finish(shared_items),
+            "skipped_candidates": {"count": len(skipped), "sample": skipped[:20]}}
