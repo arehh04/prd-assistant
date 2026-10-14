@@ -217,3 +217,77 @@ def ensure(repo, state_dir=None, force=False):
         return final, meta, False
     final, meta = build(repo, root, fp)
     return final, meta, True
+
+
+def _read_json(path):
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def ensure_bank(repo, state_dir=None, force=False):
+    """(cache, meta, rebuilt, bank). Retries once if a concurrent rebuild swapped the cache away."""
+    for attempt in (1, 2):
+        try:
+            cache, meta, rebuilt = ensure(repo, state_dir, force=force)
+            bank = load_bank(cache)
+            break
+        except FileNotFoundError:
+            if attempt == 2:
+                raise
+    if not isinstance(bank, dict) or not all(k in bank for k in ("candidates", "counts", "groups")):
+        raise ValueError(f"the cached criteria.json in {cache} is malformed; run `build` to recreate it")
+    return cache, meta, rebuilt, bank
+
+
+def status(repo, state_dir=None):
+    """What a lookup would find, without building anything and without creating any directory."""
+    repo = Path(repo)
+    if not repo.is_dir():
+        raise EnvError(f"{repo} is not a directory")
+    root = state_root(state_dir)
+    here, there = repo.resolve(), root.resolve()
+    if there == here or here in there.parents:
+        raise EnvError(f"the state directory {root} must be outside the repo {repo}")
+    final = root / repo_dir_name(repo)
+    fp = fingerprint(repo)
+    meta = _read_meta(final)
+    index = (here / ".codegraph" / "codegraph.db").is_file()
+    reasons = []
+    if not final.exists():
+        cache = "missing"
+    elif meta is None:
+        cache, reasons = "stale", ["the cache is malformed (meta.json is unreadable)"]
+    else:
+        if meta.get("tool_version") != criteria.TOOL_VERSION or meta.get("schema_version") != 1:
+            reasons.append("the tool version differs")
+        if not fp["git"]:
+            reasons.append("not a git repository or it has no commits (rebuilt on every run)")
+        else:
+            if meta.get("head") != fp["head"]:
+                reasons.append("the commit differs")
+            if meta.get("dirty") != fp["dirty"]:
+                reasons.append(f"the working tree differs ({fp['changed']} changed files)")
+        if not _bank_ok(final):
+            reasons.append("the cache is malformed (criteria.json is missing or unreadable)")
+        cache = "fresh" if not reasons else "stale"
+    gate, dev_gate = _read_json(final / "gate.json"), _read_json(final / "dev" / "dev_gate.json")
+    counts = None
+    if meta and isinstance(meta.get("counts"), dict):
+        counts = {"routes": meta.get("routes"), "screens": meta.get("screens"), "candidates": meta["counts"]}
+    if not index:
+        next_step = f"There is no CodeGraph index: run `codegraph init` in {here.name} first."
+    elif cache == "missing":
+        next_step = "There is no cache yet: the next lookup builds it (seconds to a few minutes)."
+    elif cache == "stale":
+        next_step = "The facts are stale; the next lookup rebuilds them."
+    else:
+        next_step = "The facts are fresh."
+    return {"repo": str(here), "index_present": index, "git": fp["git"], "cache": cache, "reasons": reasons,
+            "head": meta.get("head") if meta else None, "built_at": meta.get("built_at") if meta else None,
+            "codegraph_commit": meta.get("codegraph_commit") if meta else None,
+            "cache_path": str(final) if final.exists() else None,
+            "gates": {"slice1": (gate or {}).get("verdict"), "dev": (dev_gate or {}).get("verdict")},
+            "counts": counts, "coverage": _read_json(final / "dev" / "dev_summary.json"), "next_step": next_step}

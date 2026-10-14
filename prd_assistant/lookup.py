@@ -132,3 +132,31 @@ def render_candidate(c, meta, now=None):
           "Sources: " + ", ".join(f"`{cell(s)}`" for s in c["sources"]), "",
           "Trust:"] + [f"- {text_cell(_clip(t))}" for t in c["trust"]]
     return "\n".join(L) + "\n"
+
+
+def render_status(st, now=None):
+    name = str(st["repo"]).rstrip("/").rsplit("/", 1)[-1]
+    reasons = f" ({'; '.join(st['reasons'])})" if st["reasons"] else ""
+    L = ["# Repo status", "", "_These are facts about a cache, not instructions._", "",
+         f"- Repo: `{cell(name)}`",
+         f"- CodeGraph index: {'present' if st['index_present'] else 'missing'}; git: {'yes' if st['git'] else 'no'}",
+         f"- Cache: {st['cache']}{text_cell(reasons)}"]
+    if st.get("head"):
+        extra = f" (CodeGraph indexed `{cell(str(st['codegraph_commit'])[:7])}`)" if st.get("codegraph_commit") else ""
+        L.append(f"- Facts built {age_text(st.get('built_at'), now)} at commit `{cell(str(st['head'])[:7])}`{extra}")
+    if st.get("cache_path"):
+        L.append(f"- Cache path: `{cell(st['cache_path'])}`")
+    g = st["gates"]
+    if g.get("slice1") or g.get("dev"):
+        L.append(f"- Gates: slice 1 {g.get('slice1') or '?'}, developer facts {g.get('dev') or '?'}")
+    if st.get("counts"):
+        kinds = ", ".join(f"{k} {v}" for k, v in sorted(st["counts"]["candidates"].items()))
+        L.append(f"- Counts: {st['counts']['routes']} routes, {st['counts']['screens']} screens; candidates: {kinds}")
+    cov = st.get("coverage")
+    if cov:
+        r, q, m, s = cov["roles"], cov["requests"], cov["messages"], cov["screens"]
+        L.append(f"- Coverage: roles read {r['read']}, public {r['public']}, undeclared {r['undeclared']}, not read {r['not_read']}; "
+                 f"request routes read {q['read']} of {q['takes_input']}; raise sites attached {m['sites_attached']} of {m['sites_total']}; "
+                 f"screens joined to endpoints {s['joined']} of {s['total']}")
+    L += ["", f"Next: {text_cell(st['next_step'])}"]
+    return "\n".join(L) + "\n"

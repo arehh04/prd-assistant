@@ -41,7 +41,13 @@ def fake_write_outputs(out, facts, result):
 def fake_dev_prepare(repo, out, today=None):
     dev = Path(out) / "dev"
     dev.mkdir(exist_ok=True)
-    for name, data in (("roles.json", ROLES2), ("form_rules.json", RULES), ("error_messages.json", ERRORS)):
+    for name, data in (("roles.json", ROLES2), ("form_rules.json", RULES), ("error_messages.json", ERRORS),
+                       ("dev_gate.json", {"verdict": "WARN", "checks": []}),
+                       ("dev_summary.json", {"routes": 6, "roles": {"read": 2, "public": 0, "undeclared": 1, "not_read": 0},
+                                              "requests": {"takes_input": 2, "read": 1, "not_read": 1},
+                                              "messages": {"count": 3, "sites_total": 4, "sites_attached": 3},
+                                              "mismatches": {"roles": 1, "rules": 1}, "screens": {"total": 1, "joined": 1},
+                                              "verdict": "WARN"})):
         (dev / name).write_text(json.dumps(data))
     return {}
 

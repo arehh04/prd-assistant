@@ -38,20 +38,13 @@ def _parser():
 
 
 def _load(args):
-    cache, meta, rebuilt = criteria_cache.ensure(args.repo, args.state_dir, force=(args.command == "build"))
-    bank = criteria_cache.load_bank(cache)
-    if not isinstance(bank, dict) or not all(k in bank for k in ("candidates", "counts", "groups")):
-        raise ValueError(f"the cached criteria.json in {cache} is malformed; run `build` to recreate it")
-    return cache, meta, rebuilt, bank
+    return criteria_cache.ensure_bank(args.repo, args.state_dir, force=(args.command == "build"))
 
 
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
-        try:
-            cache, meta, rebuilt, bank = _load(args)
-        except FileNotFoundError:
-            cache, meta, rebuilt, bank = _load(args)   # a concurrent rebuild swapped the cache away: once more
+        cache, meta, rebuilt, bank = _load(args)
     except criteria_cache.FactsUnavailable as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
