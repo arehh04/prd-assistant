@@ -225,6 +225,35 @@ def _declaration_span(src, name):
     return None
 
 
+def _declares(text, name):
+    esc = re.escape(name)
+    return bool(re.search(rf"\b(?:function|class)\s+{esc}\b|\b(?:const|let|var)\s+{esc}\b|\bexport\s+default\b", text))
+
+
+def _follow_exports(repo_root, rel, name, aliases, depth=3):
+    """The file that declares `name`, following `export { name } from` and `export * from` re-exports."""
+    if depth == 0:
+        return None
+    text = _read_ui_file(repo_root, rel)
+    if text is None:
+        return None
+    if _declares(text, name):
+        return rel
+    base_dir = Path(rel).parent.as_posix()
+    specs = []
+    for m in re.finditer(r"export\s*\{([^}]*)\}\s*from\s*['\"]([^'\"]+)['\"]", text):
+        if re.search(rf"\b{re.escape(name)}\b", m.group(1)):
+            specs.append(m.group(2))
+    specs += [m.group(1) for m in re.finditer(r"export\s*\*\s*from\s*['\"]([^'\"]+)['\"]", text)]
+    for spec in specs:
+        target = resolve_module(spec, base_dir, aliases, repo_root)
+        if target:
+            found = _follow_exports(repo_root, target, name, aliases, depth - 1)
+            if found:
+                return found
+    return None
+
+
 def resolve_component(screen, src, aliases, repo_root):
     base_dir = Path(screen["file"]).parent.as_posix()
     result = {"status": "unresolved", "component_file": None, "candidates": [], "title": None}
@@ -264,6 +293,15 @@ def resolve_component(screen, src, aliases, repo_root):
     for spec in direct:
         cands.append({"name": Path(spec).stem, "file": resolve_module(spec, base_dir, aliases, repo_root)})
     hint = screen.get("component")
+    for c in cands:
+        if c["file"] and not c.get("span") and not c["file"].endswith(".vue"):
+            text = _read_ui_file(repo_root, c["file"])
+            if text is not None and not _declares(text, c["name"]):  # probably a barrel (index) file
+                better = _follow_exports(repo_root, c["file"], c["name"], aliases)
+                if better:
+                    c["file"] = better
+                elif hint and hint.get("file") and hint["name"] == c["name"]:
+                    c["file"] = hint["file"]
     if hint and hint.get("file") and not any(c["file"] for c in cands):
         cands = [{"name": hint["name"], "file": hint["file"]}]  # the router's own expression gave nothing
     result["candidates"] = cands

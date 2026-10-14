@@ -151,6 +151,40 @@ export const App = () => (
         self.assertEqual(admin["candidates"][0]["span"], [5, 7])
         self.assertEqual(nope["status"], "unresolved")
 
+    BARREL_ROUTER = '''import { LoginPage } from "../features/auth";
+import { OtherPage } from "../features/other";
+import { HiddenPage } from "../features/hidden";
+export const routes = [
+  { path: "/login", element: <LoginPage /> },
+  { path: "/other", element: <OtherPage /> },
+  { path: "/hidden", element: <HiddenPage /> },
+];
+'''
+
+    def test_barrel_files_are_followed_to_the_declaring_file(self):
+        write(self.root, "src/features/auth/index.ts", 'export { LoginPage } from "./pages/LoginPage";\n')
+        write(self.root, "src/features/auth/pages/LoginPage.tsx", "export function LoginPage() { return null }\n")
+        write(self.root, "src/features/other/index.ts", 'export * from "./OtherPage";\n')
+        write(self.root, "src/features/other/OtherPage.tsx", "export const OtherPage = () => null\n")
+        src = ui_text.Source(self.BARREL_ROUTER)
+
+        def resolve(path, **extra):
+            s = {"id": "s", "path": path, "file": "src/app/router.tsx", "line": line_of(self.BARREL_ROUTER, f'path: "{path}"')}
+            return ui_text.resolve_component(dict(s, **extra), src, [], self.root)
+
+        self.assertEqual(resolve("/login")["component_file"], "src/features/auth/pages/LoginPage.tsx")
+        self.assertEqual(resolve("/other")["component_file"], "src/features/other/OtherPage.tsx")
+
+    def test_an_unfollowable_barrel_falls_back_to_a_codegraph_link_with_the_same_name_only(self):
+        write(self.root, "src/features/hidden/index.ts", 'export { HiddenPage } from "@/not/configured";\n')
+        write(self.root, "src/real/HiddenPage.tsx", "export function HiddenPage() { return null }\n")
+        src = ui_text.Source(self.BARREL_ROUTER)
+        base = {"id": "s", "path": "/hidden", "file": "src/app/router.tsx", "line": line_of(self.BARREL_ROUTER, 'path: "/hidden"')}
+        same = dict(base, component={"name": "HiddenPage", "file": "src/real/HiddenPage.tsx", "line": 1})
+        other = dict(base, component={"name": "SomethingElse", "file": "src/real/HiddenPage.tsx", "line": 1})
+        self.assertEqual(ui_text.resolve_component(same, src, [], self.root)["component_file"], "src/real/HiddenPage.tsx")
+        self.assertEqual(ui_text.resolve_component(other, src, [], self.root)["component_file"], "src/features/hidden/index.ts")
+
     def test_a_line_outside_the_file_is_unresolved_not_a_crash(self):
         s = {"id": "s", "path": "/x", "file": "src/router.tsx", "line": 9999}
         r = ui_text.resolve_component(s, ui_text.Source(OBJECT_ROUTER), [], self.root)
