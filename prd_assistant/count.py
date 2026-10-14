@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from . import paths
-from .mask import line_of, mask
+from .mask import line_of, mask, match_brace
 
 SKIP_DIRS = {".git", "node_modules", "vendor", "dist", "build", ".next", ".nuxt", ".venv", "venv",
              "__pycache__", ".codegraph", "coverage", "storage", ".idea", ".vscode"}
@@ -93,4 +93,70 @@ def independent_routes(root, frameworks):
         hits |= _scan(root, (".js", ".mjs", ".cjs", ".ts"), EXPRESS_RE, mask_kind="plain")
     if "laravel" in frameworks:
         hits |= _laravel_routes(root)
+    return hits
+
+
+ROUTER_MARKERS = ("createRouter(", "createBrowserRouter(", "createHashRouter(", "createMemoryRouter(",
+                  "RouteObject", "RouteRecordRaw")
+PATH_KEY_RE = re.compile(r"\bpath\s*:\s*['\"`]")
+CHILDREN_RE = re.compile(r"\bchildren\s*:")
+JSX_PATH_RE = re.compile(r"\bpath\s*=\s*(?:\"[^\"]*\"|'[^']*'|\{\s*[\"'][^\"']*[\"']\s*\})")
+
+
+def _enclosing_object(masked, pos):
+    depth = 0
+    for i in range(pos - 1, -1, -1):
+        ch = masked[i]
+        if ch == "}":
+            depth += 1
+        elif ch == "{":
+            if depth == 0:
+                return i
+            depth -= 1
+    return None
+
+
+def _leaf_object_route_lines(text, masked):
+    lines = set()
+    for hit in PATH_KEY_RE.finditer(masked):
+        start = _enclosing_object(masked, hit.start())
+        if start is None:
+            continue
+        segment = masked[start:match_brace(masked, start) + 1]
+        if CHILDREN_RE.search(segment):
+            continue
+        lines.add(line_of(text, hit.start()))
+    return lines
+
+
+def _leaf_jsx_route_lines(text, masked):
+    lines = set()
+    for m in re.finditer(r"<Route\b", masked):
+        i, depth = m.end(), 0
+        while i < len(masked):
+            ch = masked[i]
+            if ch in "{(":
+                depth += 1
+            elif ch in "})":
+                depth -= 1
+            elif ch == ">" and depth == 0 and masked[i - 1] != "=":
+                break
+            i += 1
+        self_closing = masked[i - 1] == "/"
+        if self_closing and JSX_PATH_RE.search(text[m.start():i + 1]):
+            lines.add(line_of(text, m.start()))
+    return lines
+
+
+def independent_screens(root, frameworks):
+    if not frameworks & SCREEN_FRAMEWORKS:
+        return set()
+    hits = set()
+    for rel, full in iter_files(root, (".ts", ".tsx", ".js", ".jsx", ".mjs")):
+        text = read_text(full)
+        masked = mask(text)
+        if any(marker in masked for marker in ROUTER_MARKERS):
+            hits |= {(rel, n) for n in _leaf_object_route_lines(text, masked)}
+        if rel.endswith((".tsx", ".jsx")) and "<Route" in masked:
+            hits |= {(rel, n) for n in _leaf_jsx_route_lines(text, masked)}
     return hits
