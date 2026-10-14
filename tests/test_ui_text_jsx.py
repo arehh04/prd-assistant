@@ -123,6 +123,10 @@ class CalibrationFindingsTests(unittest.TestCase):
         got = self.pairs('<span className="material-symbols-outlined text-lg">warning</span><i className="icon">home</i><p>Careful now</p>\n')
         self.assertEqual(got, {("text", "Careful now")})
 
+    def test_html_entities_are_decoded_to_what_a_person_sees(self):
+        got = self.pairs('<h1>Receipts &amp; Claims</h1><Input placeholder="Search &amp; find" />\n')
+        self.assertLessEqual({("heading", "Receipts & Claims"), ("placeholder", "Search & find")}, got)
+
 
 if __name__ == "__main__":
     unittest.main()

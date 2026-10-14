@@ -1,5 +1,6 @@
 """What a screen shows: component resolution and user-facing text. Pattern-based and read-only."""
 import bisect
+import html
 import os
 import re
 from pathlib import Path
@@ -326,7 +327,7 @@ MAX_ITEMS = 300
 
 
 def _norm(text):
-    return " ".join(text.split())
+    return " ".join(html.unescape(text).split())
 
 
 def _has_letter(text):
