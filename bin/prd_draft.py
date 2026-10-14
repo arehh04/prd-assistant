@@ -4,6 +4,7 @@
 Usage:
   python3 -I bin/prd_draft.py prepare REPO --out DIR
   python3 -I bin/prd_draft.py guide-prepare REPO --out DIR   (writes DIR/guide/)
+  python3 -I bin/prd_draft.py dev-prepare REPO --out DIR     (writes DIR/dev/)
   python3 -I bin/prd_draft.py verify --out DIR
   python3 -I bin/prd_draft.py assemble --out DIR
 Exit codes: 0 ok, 1 lint failures, 2 gate FAIL, 3 environment or input error.
@@ -28,6 +29,9 @@ def main(argv=None):
     g = sub.add_parser("guide-prepare")
     g.add_argument("repo")
     g.add_argument("--out", required=True)
+    d = sub.add_parser("dev-prepare")
+    d.add_argument("repo")
+    d.add_argument("--out", required=True)
     for name in ("verify", "assemble"):
         s = sub.add_parser(name)
         s.add_argument("--out", required=True)
@@ -43,6 +47,11 @@ def main(argv=None):
             summary = draft.guide_prepare(args.repo, args.out)
             print(json.dumps(summary, indent=2, sort_keys=True))
             print(f"prepared: {args.out}/guide/scaffold.md and slots.template.json")
+            return 0
+        if args.command == "dev-prepare":
+            summary = draft.dev_prepare(args.repo, args.out)
+            print(json.dumps(summary, indent=2, sort_keys=True))
+            print(f"prepared: {args.out}/dev/scaffold.md and slots.template.json")
             return 0
         if args.command == "verify":
             errors = draft.run_verify(args.out)

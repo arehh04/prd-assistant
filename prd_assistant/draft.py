@@ -2,10 +2,12 @@
 import datetime
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
-from . import assemble, docs_index, groups, guide, journeys, links, scaffold, ui_text, verify
+from . import assemble, cgdb, devguide, docs_index, groups, guide, journeys, links, scaffold, ui_text, verify
 from . import count as count_module
+from .dev import errors as dev_errors, roles as dev_roles, rules as dev_rules
 
 
 class GateFailed(RuntimeError):
@@ -100,7 +102,7 @@ def run_assemble(out_dir):
     _check_manifest(out)
     prd = assemble.assemble(scaffold_path.read_text(), slots, template)
     kind = _read_json(out / "manifest.json").get("kind", "prd")
-    target = out / {"prd": "prd.md", "guide": "client-guide.md"}.get(kind, "prd.md")
+    target = out / {"prd": "prd.md", "guide": "client-guide.md", "dev": "developer-guide.md"}.get(kind, "prd.md")
     target.write_text(prd)
     return target
 
@@ -152,4 +154,66 @@ def guide_prepare(repo, out_dir, today=None):
                "items_by_kind": dict(sorted(kinds.items())), "shared_files": len(ui["shared_files"]),
                "edges": len(jr["edges"]), "shared_nav": len(jr["shared"]), "verdict": gate["verdict"]}
     _write_json(gdir / "guide_summary.json", summary)
+    return summary
+
+
+def dev_prepare(repo, out_dir, today=None):
+    out = Path(out_dir)
+    facts_path, gate_path = out / "facts.json", out / "gate.json"
+    if not facts_path.is_file() or not gate_path.is_file():
+        raise FileNotFoundError(f"{out} has no facts.json/gate.json; run bin/prd_facts.py first")
+    facts, slice1 = _read_json(facts_path), _read_json(gate_path)
+    repo = Path(repo)
+    if not repo.is_dir():
+        raise FileNotFoundError(f"{repo} is not a directory")
+    built_for = facts.get("meta", {}).get("repo")
+    if built_for and Path(built_for).resolve() != repo.resolve():
+        raise ValueError(f"facts were built for {built_for}, not {repo.resolve()}; run prd_facts.py on this repo")
+    if slice1["verdict"] == "FAIL":
+        raise GateFailed(f"gate verdict is FAIL; see {out / 'gate.md'}")
+    if not facts["routes"]:
+        raise ValueError("no routes were extracted; the developer guide needs a backend")
+    repo = repo.resolve()
+    ddir = out / "dev"
+    for stale in ("scaffold.md", "slots.template.json", "manifest.json", "dev_summary.json", "developer-guide.md"):
+        (ddir / stale).unlink(missing_ok=True)  # a failed run must not leave an older guide to assemble
+    count_module.reset_unreadable()
+    ui = ui_text.build(repo, facts) if facts["screens"] else {"screens": {}}
+    links_result = links.link(repo, facts)
+    roles = dev_roles.build(repo, facts, ui, links_result)
+    rules = dev_rules.build(repo, facts, ui, links_result)
+    conn, tmp = None, None
+    try:
+        conn, tmp = cgdb.open_index(repo)
+    except FileNotFoundError:
+        pass
+    try:
+        errors = dev_errors.build(repo, facts, roles, conn)
+    finally:
+        if conn is not None:
+            conn.close()
+        if tmp is not None:
+            shutil.rmtree(tmp, ignore_errors=True)
+    gate = devguide.dev_gate(roles, rules, errors)
+    ddir.mkdir(exist_ok=True)
+    _write_json(ddir / "roles.json", roles)
+    _write_json(ddir / "form_rules.json", rules)
+    _write_json(ddir / "error_messages.json", errors)
+    _write_json(ddir / "dev_gate.json", gate)
+    (ddir / "dev_gate.md").write_text(devguide.render_gate_md(gate))
+    if gate["verdict"] == "FAIL":
+        raise GateFailed(f"dev gate is FAIL; see {ddir / 'dev_gate.md'}")
+    text, template = devguide.build(facts, slice1, roles, rules, errors, gate, repo.name,
+                                    today or datetime.date.today().isoformat())
+    (ddir / "scaffold.md").write_text(text)
+    _write_json(ddir / "slots.template.json", template)
+    _write_manifest(ddir, "dev")
+    summary = {"routes": roles["counts"]["routes"],
+               "roles": {k: roles["counts"][k] for k in ("read", "public", "undeclared", "not_read")},
+               "requests": {k: rules["counts"][k] for k in ("takes_input", "read", "not_read")},
+               "messages": {"count": errors["counts"]["messages"], "sites_total": errors["sites"]["total"],
+                            "sites_attached": errors["sites"]["attached"]},
+               "mismatches": {"roles": len(roles["mismatches"]), "rules": len(rules["mismatches"])},
+               "verdict": gate["verdict"]}
+    _write_json(ddir / "dev_summary.json", summary)
     return summary
