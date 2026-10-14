@@ -86,5 +86,20 @@ class JoinTests(unittest.TestCase):
         self.assertEqual(joins.screen_endpoints(ui, links_result), {"s1": ["r1"], "s2": []})
 
 
+    def test_calls_made_two_imports_away_still_join_the_screen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "web/Page.tsx", 'import { usePay } from "./usePay";\nexport const Page = () => null;\n')
+            write(tmp, "web/usePay.ts", 'import { fetchPay } from "./pay.api";\nexport const usePay = () => fetchPay();\n')
+            write(tmp, "web/pay.api.ts", 'import { deep } from "./deep";\nexport const fetchPay = () => fetch("/pay");\n')
+            write(tmp, "web/deep.ts", 'import { far } from "./far";\nexport const deep = 1;\n')
+            write(tmp, "web/far.ts", 'export const far = 1;\n')
+            ui = {"screens": {"s1": {"files": ["web/Page.tsx", "web/usePay.ts"]}}}
+            near = {"routes": {"r1": {"frontend": [{"file": "web/pay.api.ts", "line": 2}]}}}
+            too_far = {"routes": {"r1": {"frontend": [{"file": "web/far.ts", "line": 1}]}}}
+            self.assertEqual(joins.screen_endpoints(ui, near), {"s1": []})   # without a repo root only evidence files count
+            self.assertEqual(joins.screen_endpoints(ui, near, tmp), {"s1": ["r1"]})
+            self.assertEqual(joins.screen_endpoints(ui, too_far, tmp), {"s1": []})   # more than two extra hops is out of reach
+
+
 if __name__ == "__main__":
     unittest.main()

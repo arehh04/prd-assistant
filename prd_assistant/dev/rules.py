@@ -81,7 +81,7 @@ def build(repo_root, facts, ui, links_result):
     takes = [rid for rid, e in endpoints.items()
              if methods[rid] in ("POST", "PUT", "PATCH") or e["fields"] or e["not_read"]]
     unread = [rid for rid in takes if endpoints[rid]["not_read"]]
-    joined = joins.screen_endpoints(ui, links_result)
+    joined = joins.screen_endpoints(ui, links_result, repo_root)
     return {"schema_version": 1, "endpoints": endpoints, "forms": forms,
             "mismatches": mismatches(forms, endpoints, joined),
             "counts": {"routes": len(endpoints), "takes_input": len(takes),

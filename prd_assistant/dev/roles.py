@@ -91,7 +91,7 @@ def build(repo_root, facts, ui, links_result):
             screens[screen["id"]] = roles_front.screen_roles(screen, table, repo_root, ctx.index)
         except Exception as exc:
             screens[screen["id"]] = _not_read(screen.get("source", ""), f"reader error: {type(exc).__name__}")
-    joined = joins.screen_endpoints(ui, links_result)
+    joined = joins.screen_endpoints(ui, links_result, repo_root)
     names = sorted({r for rec in list(endpoints.values()) + list(screens.values()) for r in (rec["roles"] or [])})
     statuses = [rec["status"] for rec in endpoints.values()]
     return {"schema_version": 1, "endpoints": endpoints, "screens": screens, "role_names": names,
