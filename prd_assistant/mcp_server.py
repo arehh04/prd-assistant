@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import criteria
+from . import criteria, criteria_cache, lookup
 from .scaffold import esc, text_cell
 
 SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -216,3 +216,68 @@ def resolve_repo(arg, config):
             return path
     raise RepoError(f"The repo {shown} is outside the allowed roots. Start the server with --root DIR (repeatable) "
                     "or set PRD_MCP_ROOTS to the folders that contain your repos, or use --allow-any-repo.")
+
+
+def ok_result(text, structured, session):
+    if len(text) > MAX_OUTPUT:
+        text = text[:MAX_OUTPUT] + f"\n\n[output cut at {MAX_OUTPUT} characters]\n"
+    result = {"content": [{"type": "text", "text": text}], "isError": False}
+    if structured is not None and session.negotiated and session.negotiated >= STRUCTURED_FROM:
+        result["structuredContent"] = structured
+    return result
+
+
+def _info(meta, cache):
+    return {"repo": meta.get("repo"), "head": meta.get("head"), "built_at": meta.get("built_at"),
+            "changed": meta.get("changed"), "git": meta.get("git"), "cache": str(cache)}
+
+
+def _failure(exc):
+    return ToolError(_clip(esc(str(exc))))
+
+
+def _bank(args, config, force=False):
+    repo = resolve_repo(args["repo"], config)
+    try:
+        return criteria_cache.ensure_bank(repo, config.state_dir, force=force)
+    except criteria_cache.FactsUnavailable as exc:
+        raise _failure(exc) from None
+    except (criteria_cache.EnvError, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise _failure(exc) from None
+
+
+def _criteria_lookup(args, session, config):
+    cache, meta, _, bank = _bank(args, config)
+    info = _info(meta, cache)
+    sel = lookup.select(bank, args["task"], args.get("max_subjects", 5), args.get("max_candidates", 60))
+    return ok_result(lookup.render_markdown(sel, info, bank), lookup.render_json(sel, info), session)
+
+
+def _criteria_show(args, session, config):
+    cache, meta, _, bank = _bank(args, config)
+    candidate = lookup.find_candidate(bank, args["id"])
+    if candidate is None:
+        raise ToolError("No candidate with that id exists in the current facts (ids change when the code changes). "
+                        "Run criteria_lookup to see the current ids.")
+    info = _info(meta, cache)
+    return ok_result(lookup.render_candidate(candidate, info), {"meta": info, "candidate": candidate}, session)
+
+
+def _criteria_build(args, session, config):
+    cache, meta, rebuilt, bank = _bank(args, config, force=True)
+    counts = ", ".join(f"{k}: {v}" for k, v in sorted(bank["counts"].items()))
+    text = f"cache: {cache}\ncommit: {str(meta.get('head') or '?')[:7]}\ncandidates: {counts}\n"
+    return ok_result(text, {"cache": str(cache), "commit": meta.get("head"), "counts": bank["counts"], "rebuilt": rebuilt}, session)
+
+
+def _repo_status(args, session, config):
+    repo = resolve_repo(args["repo"], config)
+    try:
+        st = criteria_cache.status(repo, config.state_dir)
+    except criteria_cache.EnvError as exc:
+        raise _failure(exc) from None
+    return ok_result(lookup.render_status(st), st, session)
+
+
+HANDLERS.update({"criteria_lookup": _criteria_lookup, "criteria_show": _criteria_show,
+                 "criteria_build": _criteria_build, "repo_status": _repo_status})
