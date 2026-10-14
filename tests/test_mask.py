@@ -49,6 +49,19 @@ class MaskTests(unittest.TestCase):
         self.assertNotIn("c", out)
         self.assertEqual(len(out), len("x = 'a//b' // c\n"))
 
+    def test_apostrophe_between_letters_is_text_when_asked(self):
+        src = "<p>Don't stop</p> // note\n"
+        with_flag = mask(src, apostrophe_in_words=True)
+        self.assertIn("Don't stop</p>", with_flag)
+        self.assertNotIn("note", with_flag)
+        default = mask(src)
+        self.assertNotIn("stop", default)  # without the flag the apostrophe opens a "string" that swallows the line
+
+    def test_a_real_string_after_punctuation_is_still_a_string(self):
+        out = mask("x = ['a', 'b'] // c\n", apostrophe_in_words=True)
+        self.assertEqual(out.count("'"), 4)
+        self.assertNotIn("a", out.replace("x", ""))  # string contents are blanked
+
 
 if __name__ == "__main__":
     unittest.main()

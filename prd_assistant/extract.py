@@ -31,6 +31,14 @@ def _handler(conn, route_id):
     return None if row is None else _handler_dict(row)
 
 
+def _component(conn, route_id):
+    row = conn.execute(
+        "select t.name, t.file_path, t.start_line from edges e join nodes t on t.id = e.target "
+        "where e.source = ? and e.kind = 'references' and t.kind in ('function', 'method', 'class', 'component') "
+        "limit 1", (route_id,)).fetchone()
+    return None if row is None else {"name": row["name"], "file": row["file_path"], "line": row["start_line"]}
+
+
 def extract_facts(conn, repo_root):
     generated = {r["path"]: bool(r["generated"]) for r in conn.execute("select path, generated from files")}
     routes, screens, excluded = [], [], []
@@ -51,10 +59,13 @@ def extract_facts(conn, repo_root):
                         tested_by=_tested_by(conn, handler["id"]) if handler else [])
             routes.append(fact)
         else:
-            fact.update(kind="screen", path=r["name"])
+            fact.update(kind="screen", path=r["name"], component=_component(conn, r["id"]))
             screens.append(fact)
 
     screen_ids = {s["id"] for s in screens}
+    screens_by_path = {}
+    for s in screens:
+        screens_by_path.setdefault(s["path"], []).append(s)
     navigation = []
     for e in conn.execute(
         "select e.id as edge_id, e.line, e.metadata, s.name as from_name, s.file_path as from_file, "
@@ -64,8 +75,13 @@ def extract_facts(conn, repo_root):
     ):
         source = f"{e['from_file']}:{e['line']}"
         reason = paths.exclusion_reason(e["from_file"], generated.get(e["from_file"], False))
-        if reason is None and e["to_id"] not in screen_ids:
-            reason = "target-excluded"
+        to_id, reattached = e["to_id"], False
+        if reason is None and to_id not in screen_ids:
+            same_path = screens_by_path.get(e["to_path"], [])
+            if len(same_path) == 1:
+                to_id, reattached = same_path[0]["id"], True
+            else:
+                reason = "target-excluded"
         if reason:
             excluded.append({"id": f"nav:{e['edge_id']}", "kind": "navigation",
                              "name": f"{e['from_name']} -> {e['to_path']}", "source": source, "reason": reason})
@@ -75,8 +91,8 @@ def extract_facts(conn, repo_root):
         except ValueError:
             href = None
         navigation.append({"id": f"nav:{e['edge_id']}", "from_symbol": e["from_name"],
-                           "from_file": e["from_file"], "to_path": e["to_path"], "to_id": e["to_id"],
-                           "line": e["line"], "source": source, "href": href})
+                           "from_file": e["from_file"], "to_path": e["to_path"], "to_id": to_id,
+                           "line": e["line"], "source": source, "href": href, "reattached": reattached})
 
     return {
         "schema": 1,

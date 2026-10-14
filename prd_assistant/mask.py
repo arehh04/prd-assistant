@@ -9,7 +9,7 @@ def _blank(chunk):
     return "".join("\n" if ch == "\n" else " " for ch in chunk)
 
 
-def mask(src, hash_comments=False, blank_strings=True):
+def mask(src, hash_comments=False, blank_strings=True, apostrophe_in_words=False):
     out = []
     i, n = 0, len(src)
     while i < n:
@@ -25,7 +25,8 @@ def mask(src, hash_comments=False, blank_strings=True):
             j = n if j == -1 else j + 2
             out.append(_blank(src[i:j]))
             i = j
-        elif c in "'\"`":
+        elif c in "'\"`" and not (apostrophe_in_words and c == "'" and i > 0
+                                  and src[i - 1].isalnum() and src[i + 1:i + 2].isalpha()):
             j = i + 1
             while j < n and src[j] != c:
                 j += 2 if src[j] == "\\" else 1
