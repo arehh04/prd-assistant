@@ -4,7 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import assemble, docs_index, groups, links, scaffold, verify
+from . import assemble, docs_index, groups, guide, journeys, links, scaffold, ui_text, verify
+from . import count as count_module
 
 
 class GateFailed(RuntimeError):
@@ -27,9 +28,9 @@ def _sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _write_manifest(out):
+def _write_manifest(out, kind="prd"):
     _write_json(out / "manifest.json", {"scaffold_sha256": _sha(out / "scaffold.md"),
-                                       "template_sha256": _sha(out / "slots.template.json")})
+                                       "template_sha256": _sha(out / "slots.template.json"), "kind": kind})
 
 
 def _check_manifest(out):
@@ -65,7 +66,7 @@ def prepare(repo, out_dir, today=None):
     _write_json(out / "links.json", link_data)
     _write_json(out / "slots.template.json", template)
     (out / "scaffold.md").write_text(text)
-    _write_manifest(out)
+    _write_manifest(out, "prd")
     summary = {
         "prefix": groups.global_prefix([r["path"] for r in facts["routes"]]),
         "route_groups": len(groups.group_routes(facts["routes"])),
@@ -98,6 +99,54 @@ def run_assemble(out_dir):
         raise FileNotFoundError(f"missing {scaffold_path}")
     _check_manifest(out)
     prd = assemble.assemble(scaffold_path.read_text(), slots, template)
-    target = out / "prd.md"
+    kind = _read_json(out / "manifest.json").get("kind", "prd")
+    target = out / {"prd": "prd.md", "guide": "client-guide.md"}.get(kind, "prd.md")
     target.write_text(prd)
     return target
+
+
+def guide_prepare(repo, out_dir, today=None):
+    out = Path(out_dir)
+    facts_path, gate_path = out / "facts.json", out / "gate.json"
+    if not facts_path.is_file() or not gate_path.is_file():
+        raise FileNotFoundError(f"{out} has no facts.json/gate.json; run bin/prd_facts.py first")
+    facts, slice1 = _read_json(facts_path), _read_json(gate_path)
+    repo = Path(repo)
+    if not repo.is_dir():
+        raise FileNotFoundError(f"{repo} is not a directory")
+    built_for = facts.get("meta", {}).get("repo")
+    if built_for and Path(built_for).resolve() != repo.resolve():
+        raise ValueError(f"facts were built for {built_for}, not {repo.resolve()}; run prd_facts.py on this repo")
+    if slice1["verdict"] == "FAIL":
+        raise GateFailed(f"gate verdict is FAIL; see {out / 'gate.md'}")
+    if not facts["screens"]:
+        raise ValueError("no screens were extracted; the client guide needs a frontend")
+    repo = repo.resolve()
+    count_module.reset_unreadable()
+    ui = ui_text.build(repo, facts)
+    jr = journeys.build(facts, ui)
+    gate = guide.guide_gate(ui, jr)
+    gdir = out / "guide"
+    gdir.mkdir(exist_ok=True)
+    _write_json(gdir / "ui_text.json", ui)
+    _write_json(gdir / "journeys.json", jr)
+    _write_json(gdir / "guide_gate.json", gate)
+    (gdir / "guide_gate.md").write_text(guide.render_gate_md(gate))
+    if gate["verdict"] == "FAIL":
+        raise GateFailed(f"guide gate is FAIL; see {gdir / 'guide_gate.md'}")
+    text, template = guide.build(facts, slice1, ui, jr, gate, repo.name, today or datetime.date.today().isoformat())
+    (gdir / "scaffold.md").write_text(text)
+    _write_json(gdir / "slots.template.json", template)
+    _write_manifest(gdir, "guide")
+    statuses = [s["status"] for s in ui["screens"].values()]
+    kinds = {}
+    for s in ui["screens"].values():
+        for i in s["items"]:
+            kinds[i["kind"]] = kinds.get(i["kind"], 0) + 1
+    summary = {"screens": len(statuses), "resolved": statuses.count("resolved"),
+               "conditional": statuses.count("conditional"), "unresolved": statuses.count("unresolved"),
+               "with_text": sum(1 for s in ui["screens"].values() if s["items"]),
+               "items_by_kind": dict(sorted(kinds.items())), "shared_files": len(ui["shared_files"]),
+               "edges": len(jr["edges"]), "shared_nav": len(jr["shared"]), "verdict": gate["verdict"]}
+    _write_json(gdir / "guide_summary.json", summary)
+    return summary
