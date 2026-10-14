@@ -1,4 +1,5 @@
 """MCP server: JSON-RPC 2.0 over stdio exposing the criteria tools. Pure functions; bin/prd_mcp.py is the process."""
+import contextlib
 import json
 import os
 import re
@@ -182,9 +183,13 @@ def parse_roots(cli_roots, env_value, cwd):
     raw = list(cli_roots or [])
     if not raw and env_value:
         raw = [p for p in env_value.split(os.pathsep) if p.strip()]
-    if not raw:
-        raw = [str(cwd)]
     roots, warnings = [], []
+    if not raw:
+        if Path(cwd).resolve() == Path(Path(cwd).resolve().anchor):
+            warnings.append("prd-mcp: the working directory is the filesystem root, so it is not used as a root; "
+                            "use --root DIR or PRD_MCP_ROOTS")
+        else:
+            raw = [str(cwd)]
     for item in raw:
         try:
             path = Path(os.path.expanduser(item)).resolve(strict=True)
@@ -281,3 +286,31 @@ def _repo_status(args, session, config):
 
 HANDLERS.update({"criteria_lookup": _criteria_lookup, "criteria_show": _criteria_show,
                  "criteria_build": _criteria_build, "repo_status": _repo_status})
+
+
+def serve(stdin, stdout, config):
+    """Read newline-delimited JSON-RPC from a binary stream, answer on another. stdout stays protocol-only."""
+    session = Session()
+    with contextlib.redirect_stdout(sys.stderr):      # a stray print can never corrupt the protocol stream
+        while True:
+            raw = stdin.readline(MAX_LINE + 1)
+            if not raw:
+                return 0
+            if len(raw) > MAX_LINE and not raw.endswith(b"\n"):
+                while True:                           # drop the rest of the oversize line
+                    chunk = stdin.readline(65536)
+                    if not chunk or chunk.endswith(b"\n"):
+                        break
+                out = json.dumps(rpc_error(None, -32700, "Message too long."), separators=(",", ":"))
+            else:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line:
+                    continue
+                out = handle_line(line, session, config)
+            if out is None:
+                continue
+            try:
+                stdout.write(out.encode("ascii") + b"\n")
+                stdout.flush()
+            except (BrokenPipeError, ValueError):
+                return 0

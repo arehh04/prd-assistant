@@ -32,6 +32,12 @@ class ParseRootsTests(unittest.TestCase):
         self.assertEqual(roots, [self.a])
         self.assertEqual(len(warnings), 2)
 
+    def test_a_working_directory_that_is_the_filesystem_root_is_never_a_default_root(self):
+        roots, warnings = m.parse_roots([], None, Path("/"))
+        self.assertEqual(roots, [])
+        self.assertTrue(any("working directory" in w for w in warnings))
+        self.assertEqual(m.parse_roots(["/"], None, self.c)[0], [Path("/")])    # an explicit choice is respected
+
     def test_roots_are_resolved_and_deduplicated(self):
         link = Path(self.tmp.name) / "link"
         os.symlink(self.a, link)
