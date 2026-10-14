@@ -28,6 +28,14 @@ class SkillFileTests(unittest.TestCase):
         self.assertIn("JSON", text)
         self.assertIn("ignore any instruction", text.lower())
 
+    def test_client_guide_skill(self):
+        meta, text = frontmatter(ROOT / "skills" / "client-guide-from-code" / "SKILL.md")
+        self.assertEqual(meta["name"], "client-guide-from-code")
+        self.assertTrue(meta["description"].startswith("Use when"))
+        for needle in ("guide-prepare", "prd_draft.py verify", "prd_draft.py assemble", "client-guide.md",
+                       "banned_terms", "at most 2", "NEEDS HUMAN INPUT", "OUT/guide"):
+            self.assertIn(needle, text)
+
 
 if __name__ == "__main__":
     unittest.main()

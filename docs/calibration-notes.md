@@ -94,3 +94,51 @@ Followed `skills/prd-from-code/SKILL.md` as the model: 16 slots (1 problem, 14 p
 - Caveat: the model here was the same session that wrote the lint rules, so a first-run pass is weak evidence about lint strength. The strength evidence is the negative tests (fabricated number, dead citation, citation outside range, fabricated quote, markdown structure, template injection, missing and extra keys).
 - By hand: the group route counts in the Completion check sum to 78, the same figure as the gate; the `agent` group's first row matches the facts (`agent.controller.ts:29`).
 - A reader would find this misleading or thin: the Problem slot is short because only the first README sections were offered (the draft states that 106 documentation sections were not offered, size cap); and "HTTP tests: none" for every Urus route reflects a real absence of HTTP tests rather than a linker miss.
+
+
+## Slice 3 (client guide), 2026-10-14
+
+Commands: `python3 -I bin/prd_facts.py <repo> --out ~/research/prd-out3/<name>` then `python3 -I bin/prd_draft.py guide-prepare <repo> --out ~/research/prd-out3/<name>`.
+Numbers are from each run's `guide/guide_summary.json` after the fixes listed below. All three pass the guide gate.
+
+| Repo | Screens | resolved / conditional / unresolved | with text | shared files | journey edges + shared-menu links | heading / button / label / placeholder / title / text / message | skipped candidates |
+|---|---|---|---|---|---|---|---|
+| room-management (Laravel + Vue) | 17 | 17 / 0 / 0 | 17 | 11 | 11 + 6 | 34 / 73 / 190 / 28 / 103 / 186 / 41 | 572 |
+| Urus (NestJS + React) | 15 | 15 / 0 / 0 | 15 | 1 | 29 + 2 | 45 / 72 / 38 / 21 / 39 / 806 / 42 | 282 |
+| tis (FastAPI + React), not golden | 21 | 18 / 2 / 1 | 18 | 4 | 16 + 11 | 86 / 140 / 120 / 35 / 108 / 542 / 188 | 414 |
+
+### The slice 1 navigation fix worked
+
+room-management had 0 navigation facts before (CodeGraph pointed all 20 at test-file routes). After re-attaching by path it has journey edges and shared-menu links (table above).
+
+### Defects found by calibration and fixed (all test-first)
+
+1. **CodeGraph's component link is wrong for nested Vue routes** (it points at the parent layout: `/admin/branches` resolved to `AdminLayout.vue`, so the view's own labels were missed). The router's own parsed expression now wins and the CodeGraph link is the fallback. This reverses the order in the spec.
+2. **My first fix broke Urus** (its guide gate went from PASS to FAIL): Urus imports through barrel files (`from "../features/auth"` is an `index.ts` that only re-exports). A candidate file that does not declare the component is now followed through `export {...} from` and `export * from`; failing that, CodeGraph's link is used only if it names the same component.
+3. **Components declared in the router file itself** (`tis` `App.tsx` defines `LoginPage`, `ViewerHomePage`, `AuthenticatedApp`) resolve to that file but contribute only the lines of their own declaration.
+4. **UI-library attributes**: `label=` and `header=` are read (`label=` on a Button-like tag is a button). Before this, room-management showed 0 labels, placeholders and messages; now 190, 28 and 41.
+5. **Strings in ternaries** (`{{ busy ? 'Signing out…' : 'Log out' }}`) are text. My own implementation first read class-name strings out of nested tags' attributes (`tis` `TeamsPage`); expressions containing a nested tag are now skipped for this rule.
+6. **Icon-font noise**: snake_case ligature names and text inside `material-symbols`/`icon` elements are not text.
+7. **HTML entities** are decoded (`Email &amp; Password` is shown as `Email & Password`).
+
+### Hand checks
+
+- Urus `/login`: the extracted items line up with `LoginPage.tsx` (messages at lines 49, 55, 60; placeholder at 189; labels at 182, 202; buttons at 209).
+- room-management `/admin/branches`: heading, button "New branch", label "Search branches by code or name", placeholder "Search code or name" all come from `BranchesView.vue`.
+- `tis` `/teams`: the seven "Failed to ..." messages come from `TeamsPage.tsx` catch handlers.
+
+### Known limitations (documented, not fixed)
+
+- **Messages kept in lookup tables are not found.** room-management's `http.ts` maps failures to client-visible text ("Cannot reach the server.", "Too many requests.", "Unexpected server response.", "Unknown error."). They sit in an object literal, not in a message call, so the name-based heuristic misses them. They appear in the skipped-candidates sample.
+- **Text next to a dynamic value is a fragment.** `Batch Approve (` and `BATCH #PB-` are the static parts around an expression.
+- **Developer-flavored text is shown as written.** Urus's login screen has the visible text `Fastify Guard:`. The guide is faithful to the screen; a person decides whether a client should see it.
+- **`tis` has 3 non-resolved screens**, all catch-all `/*` wrapper routes around the signed-in app and the login page. They are not content screens.
+- Depth-1 text only; translation files, roles and server-rendered views are not read.
+
+### The full loop on Urus (acceptance run)
+
+Followed `skills/client-guide-from-code/SKILL.md` as the model: 16 slots (1 overview, 15 screens; one answered `NEEDS HUMAN INPUT` because the evidence for `/agents` is a single loading message), then `verify`, then `assemble`.
+
+- Lint rounds needed: **0**; `client-guide.md` assembled (967 lines, 15 screens, equal to the number of screens in the PRD facts).
+- Caveat: same session that wrote the lint rules, so a first-run pass is weak evidence about lint strength. The strength evidence is the negative tests (jargon in prose, jargon inside quotes and citations, look-alike words, hostile UI text).
+- A client might find odd: developer-flavored visible text such as `Fastify Guard:`, a screen heading list that includes "Not available for your role" (from a role-gate component imported by the home page), and fragment texts. The guide is faithful to the code, not curated.

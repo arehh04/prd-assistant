@@ -35,6 +35,26 @@
           "matched_via_prefix": 0,
           "unmatched": 17
         }
+      },
+      "expect_guide": {
+        "conditional": 0,
+        "edges": 11,
+        "items_by_kind": {
+          "button": 73,
+          "heading": 34,
+          "label": 190,
+          "message": 41,
+          "placeholder": 28,
+          "text": 186,
+          "title": 103
+        },
+        "resolved": 17,
+        "screens": 17,
+        "shared_files": 11,
+        "shared_nav": 6,
+        "unresolved": 0,
+        "verdict": "PASS",
+        "with_text": 17
       }
     },
     "rms-noadapter": {
@@ -83,6 +103,26 @@
           "matched_via_prefix": 0,
           "unmatched": 4
         }
+      },
+      "expect_guide": {
+        "conditional": 0,
+        "edges": 29,
+        "items_by_kind": {
+          "button": 72,
+          "heading": 45,
+          "label": 38,
+          "message": 42,
+          "placeholder": 21,
+          "text": 806,
+          "title": 39
+        },
+        "resolved": 15,
+        "screens": 15,
+        "shared_files": 1,
+        "shared_nav": 2,
+        "unresolved": 0,
+        "verdict": "PASS",
+        "with_text": 15
       }
     }
   }

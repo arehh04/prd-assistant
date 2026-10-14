@@ -182,3 +182,15 @@ Verdict is the worst graded check. FAIL stops the pipeline. With zero screens: e
 - The jargon list is a judgment call and will need tuning on real output.
 - Text kinds are guessed from tag names; a design-system component named `Foo` with a title prop is read as a `text` item.
 - Vue templates are read with patterns, not a real parser; unusual syntax may be skipped, and the skipped-candidates sample is where that shows.
+
+## Amendments from the slice 3 plan and calibration (2026-10-14)
+
+1. Component files come from the router's own parsed expression and imports; CodeGraph's route link is only the fallback (it points at the parent layout for nested Vue routes) and is used for a candidate only when it names the same component. A candidate file that does not declare the component is followed through `export {...} from` and `export * from` (3 hops).
+2. Screens are numbered individually (`S01`...) sorted by path; slice 2's per-segment group ids are not used.
+3. Calls whose name is a `*Error`/`*Exception` constructor, and `console.*`/`logger.*`, are not client-visible messages.
+4. `mask(..., apostrophe_in_words=True)` treats an apostrophe between letters as text.
+5. A `Component:` route key is read like `component:`.
+6. A resolved screen with no text of its own is listed under Gaps instead of getting a section.
+7. The default banned list also contains `apis`.
+8. A component declared in the router file itself resolves to that file and contributes only its own declaration's lines.
+9. `label=` and `header=` attributes are read; strings after `?`/`:` inside a text expression are text unless they look like code tokens and unless the expression contains a nested tag; snake_case icon names and text inside icon-font elements are not text; HTML entities are decoded.
