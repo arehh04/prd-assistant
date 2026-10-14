@@ -58,7 +58,7 @@ def _check_slot(key, text, spec):
     terms = spec.get("banned_terms") or []
     if terms:
         visible = QUOTE_RE.sub(" ", CITE_RE.sub(" ", stripped))
-        hits = sorted({t for t in terms if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", visible, re.I)})
+        hits = sorted({t for t in terms if re.search(r"(?<!\w)" + r"\s+".join(map(re.escape, t.split())) + r"(?:s|es)?(?!\w)", visible, re.I)})
         if hits:
             errors.append(_err(key, "jargon", "plain-language rule: avoid " + ", ".join(hits)))
     return errors

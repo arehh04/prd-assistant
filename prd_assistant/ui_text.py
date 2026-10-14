@@ -11,10 +11,11 @@ from .mask import mask, match_brace
 UI_SUFFIXES = (".tsx", ".jsx", ".vue", ".ts", ".js")
 GUESS_SUFFIXES = (".tsx", ".ts", ".jsx", ".js", ".vue", ".mjs")
 MAX_FILE_BYTES = 2_000_000
-STRING_RE = re.compile(r"""(['"`])((?:\\.|(?!\1).)*)\1""", re.S)
+STRING_RE = re.compile(r"""(['"`])((?:\\.|(?!\1)[^\\])*)\1""", re.S)
+MAX_SCAN = 4000  # an opening tag or text run longer than this is not read (keeps hostile files linear)
 VITE_ALIAS_RE = re.compile(r"""['"]([@~][\w-]*)['"]\s*:\s*([^\n]+)""")
 TS_PATH_RE = re.compile(r'"([^"*]+)/\*"\s*:\s*\[\s*"([^"]+?)/?\*?"')
-IMPORT_RE = re.compile(r"""^\s*import\s+(?:(?P<clause>[^'"]+?)\s+from\s+)?(['"])(?P<spec>[^'"]+)\2""", re.M)
+IMPORT_RE = re.compile(r"""^\s*import\s+(?:(?P<clause>[^'"]{1,1000}?)\s+from\s+)?(['"])(?P<spec>[^'"]+)\2""", re.M)
 LAZY_RE = re.compile(
     r"""\b(?:const|let|var)\s+([A-Z]\w*)\s*=\s*(?:React\.)?lazy\(\s*\(\)\s*=>\s*import\(\s*(['"`])(.*?)\2""", re.S)
 
@@ -43,6 +44,8 @@ def load_aliases(repo_root, start_dir):
     for d in directories:
         for pattern in ("vite.config.*", "tsconfig*.json", "jsconfig.json"):
             for cfg in sorted(d.glob(pattern)):
+                if cfg.is_symlink() or not _inside(repo_root, cfg):
+                    continue
                 text = count.read_text(cfg)
                 if cfg.name.startswith("vite"):
                     for m in VITE_ALIAS_RE.finditer(text):
@@ -53,6 +56,11 @@ def load_aliases(repo_root, start_dir):
                     for m in TS_PATH_RE.finditer(text):
                         aliases.append((m.group(1), _abs(d / m.group(2))))
     return list(dict.fromkeys(aliases))
+
+
+def _inside(repo_root, path):
+    """The real location of `path` (symlinks resolved) is inside the real repo root."""
+    return Path(os.path.realpath(repo_root)) in Path(os.path.realpath(path)).parents
 
 
 def resolve_module(spec, base_dir, aliases, repo_root):
@@ -70,7 +78,8 @@ def resolve_module(spec, base_dir, aliases, repo_root):
             return None
     candidates = [base] + [Path(str(base) + s) for s in GUESS_SUFFIXES] + [base / ("index" + s) for s in GUESS_SUFFIXES]
     for cand in candidates:
-        if cand.is_file() and not cand.is_symlink() and repo_root in cand.parents:
+        if (cand.name.endswith(GUESS_SUFFIXES) and not paths.is_secret_name(cand.name)
+                and cand.is_file() and not cand.is_symlink() and _inside(repo_root, cand)):
             return cand.relative_to(repo_root).as_posix()
     return None
 
@@ -115,7 +124,7 @@ class Source:
 
 def tag_end(blanked, i):
     """Index of the '>' that closes the opening tag whose name ends at i, or -1."""
-    depth, n = 0, len(blanked)
+    depth, n = 0, min(len(blanked), i + MAX_SCAN)
     while i < n:
         ch = blanked[i]
         if ch in "{(":
@@ -316,7 +325,7 @@ def resolve_component(screen, src, aliases, repo_root):
 ATTR_RE = re.compile(r"""([A-Za-z_:][\w:\-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|\{\s*(["'`])(.*?)\4\s*\})""", re.S)
 TEXT_ATTRS = {"placeholder": "placeholder", "label": "label", "header": "label", "title": "title",
               "aria-label": "title", "alt": "title"}
-TERNARY_RE = re.compile(r"[?:]\s*(['\"`])((?:\\.|(?!\1).)*)\1")
+TERNARY_RE = re.compile(r"[?:]\s*(['\"`])((?:\\.|(?!\1)[^\\])*)\1")
 ICON_NAME_RE = re.compile(r"[a-z]+(?:_[a-z0-9]+)+")
 ICON_CLASS_RE = re.compile(r"material-symbols|material-icons|\bicon\b|\bfa-", re.I)
 ERROR_CLASS_RE = re.compile(r"destructive|error", re.I)
@@ -379,7 +388,7 @@ def _finish(items):
 def _content_pieces(blanked, code, start):
     """Text pieces outside braces from `start` up to the next '<' at brace depth 0."""
     pieces, depth, piece_start, open_i = [], 0, start, start
-    for i in range(start, len(blanked)):
+    for i in range(start, min(len(blanked), start + 5 * MAX_SCAN)):
         ch = blanked[i]
         if ch == "{":
             if depth == 0:
@@ -557,7 +566,8 @@ NOT_TEXT_CONTEXT_RE = re.compile(r"(className|class|import|from|require|style|hr
 
 def _read_ui_file(repo_root, rel):
     full = Path(repo_root) / rel
-    if full.is_symlink() or not full.is_file() or paths.exclusion_reason(rel):
+    if (full.is_symlink() or not full.is_file() or paths.exclusion_reason(rel)
+            or paths.is_secret_name(full.name) or not _inside(repo_root, full)):
         return None
     if full.stat().st_size > MAX_FILE_BYTES:
         count.mark_unreadable(full)
@@ -602,7 +612,7 @@ def build(repo_root, facts):
     for screen in facts["screens"]:
         router = screen["file"]
         if router not in router_cache:
-            router_cache[router] = Source(count.read_text(repo_root / router))
+            router_cache[router] = Source(_read_ui_file(repo_root, router) or "")
         info = resolve_component(screen, router_cache[router], aliases_for(Path(router).parent.as_posix()), repo_root)
         resolved[screen["id"]] = (screen, info)
 

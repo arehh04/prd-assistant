@@ -42,7 +42,16 @@ def esc(text):
 
 
 def cell(text):
+    """For text inside a code span in a table cell: only the pipe needs a backslash."""
     return esc(text).replace("|", "\\|")
+
+
+def text_cell(text):
+    """For visible text in a table cell: no live HTML, links or images, no pipes."""
+    s = esc(text)
+    for ch in "\\<>[]":
+        s = s.replace(ch, "\\" + ch)
+    return s.replace("|", "\\|")
 
 
 def digits(*texts):

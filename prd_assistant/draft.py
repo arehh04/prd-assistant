@@ -122,6 +122,9 @@ def guide_prepare(repo, out_dir, today=None):
     if not facts["screens"]:
         raise ValueError("no screens were extracted; the client guide needs a frontend")
     repo = repo.resolve()
+    gdir = out / "guide"
+    for stale in ("scaffold.md", "slots.template.json", "manifest.json", "guide_summary.json", "client-guide.md"):
+        (gdir / stale).unlink(missing_ok=True)  # a failed run must not leave an older guide to assemble
     count_module.reset_unreadable()
     ui = ui_text.build(repo, facts)
     jr = journeys.build(facts, ui)
