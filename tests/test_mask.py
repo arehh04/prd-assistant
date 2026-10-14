@@ -43,6 +43,12 @@ class MaskTests(unittest.TestCase):
         self.assertEqual(match_brace(m, start), len(m) - 2)
         self.assertEqual(match_brace("{ unbalanced", 0), len("{ unbalanced") - 1)
 
+    def test_comments_only_mode_keeps_string_contents(self):
+        out = mask("x = 'a//b' // c\n", blank_strings=False)
+        self.assertTrue(out.startswith("x = 'a//b'"))
+        self.assertNotIn("c", out)
+        self.assertEqual(len(out), len("x = 'a//b' // c\n"))
+
 
 if __name__ == "__main__":
     unittest.main()

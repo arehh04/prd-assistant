@@ -9,7 +9,7 @@ def _blank(chunk):
     return "".join("\n" if ch == "\n" else " " for ch in chunk)
 
 
-def mask(src, hash_comments=False):
+def mask(src, hash_comments=False, blank_strings=True):
     out = []
     i, n = 0, len(src)
     while i < n:
@@ -30,7 +30,8 @@ def mask(src, hash_comments=False):
             while j < n and src[j] != c:
                 j += 2 if src[j] == "\\" else 1
             j = min(j, n)
-            out.append(c + _blank(src[i + 1:j]) + (c if j < n else ""))
+            body = src[i + 1:j]
+            out.append(c + (_blank(body) if blank_strings else body) + (c if j < n else ""))
             i = j + 1
         else:
             out.append(c)
