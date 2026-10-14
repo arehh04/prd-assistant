@@ -1,7 +1,8 @@
 """Acceptance-criteria candidates: the slice 3b facts reshaped into cited, labelled statements."""
 import re
 
-from .devguide import _who
+from . import groups
+from .devguide import _field_text, _who
 
 TOOL_VERSION = "1"
 PROVENANCE = "Read from the code at the cited source; the application was not run."
@@ -134,3 +135,111 @@ def screen_candidates(facts, roles):
                          {"roles": rec["roles"], "via": rec.get("via")}, [rec.get("source")], trust,
                          words(screen["path"]), _role_words(rec["roles"])))
     return out
+
+
+MAX_CANDIDATES = 20_000
+KIND_ID = {"role": "ROLE", "role_refused": "REFUSED", "field": "FIELD", "request_unread": "UNREAD",
+           "error": "ERROR", "screen_roles": "SCREEN", "mismatch": "MISMATCH"}
+ERROR_TRUST = ("only messages in the handler, its guards and the functions it calls directly are read; "
+               "messages raised deeper are not included")
+
+
+def field_candidates(facts, rules):
+    out = []
+    for route in facts["routes"]:
+        rec = rules["endpoints"].get(route["id"])
+        if not rec:
+            continue
+        label = _label(route)
+        subject = {"type": "route", "id": route["id"], "label": label}
+        base_keys = words(route["path"]) + words(route["method"])
+        notes = list(rec.get("notes") or [])
+        for f in rec["fields"]:
+            trust = ["hand-written input checks (if/else validation in the handler) are not read"] + notes
+            if f.get("partial"):
+                trust.append("part of the validation chain could not be parsed, so required/optional is unknown")
+            if f.get("other"):
+                trust.append("refinements and transforms (" + ", ".join(f["other"]) + ") are not evaluated")
+            text = f"{label} takes {_field_text(f)}."
+            if f.get("messages"):
+                text += " Validation message: " + " / ".join(f"'{m}'" for m in f["messages"][:3]) + "."
+            facts_rec = {k: v for k, v in f.items() if k != "raw"}
+            out.append(_cand("field", subject, text, facts_rec, [f.get("source")], trust,
+                             base_keys + words(f["name"]) + [w for m in f.get("messages", []) for w in words(m)]))
+        for reason in rec.get("not_read") or []:
+            out.append(_cand("request_unread", subject, f"Part of the request of {label} was not read: {reason}.",
+                             {"reason": reason}, [rec.get("source")], notes, base_keys))
+    return out
+
+
+def error_candidates(facts, errors):
+    by_route = {r["id"]: r for r in facts["routes"]}
+    out, seen = [], set()
+    for m in errors["messages"]:
+        route = by_route.get(m["route"])
+        if route is None or (m["route"], m["source"], m["text"]) in seen:
+            continue
+        seen.add((m["route"], m["source"], m["text"]))
+        label = _label(route)
+        status = "?" if m["status"] is None else m["status"]
+        text = f"{label} returns {status} '{m['text']}'" + (f" (code {m['code']})." if m.get("code") else ".")
+        trust = [ERROR_TRUST]
+        if m["via"] == "guard":
+            trust.append("this message comes from a guard or dependency shared by endpoints")
+        elif m["via"] == "helper":
+            trust.append("this message is raised in a helper called by the handler")
+        out.append(_cand("error", {"type": "route", "id": route["id"], "label": label}, text,
+                         {k: m.get(k) for k in ("status", "kind", "text", "via", "helper", "code")}, [m["source"]],
+                         trust, words(route["path"]) + words(route["method"]) + words(m["text"])))
+    return out
+
+
+def mismatch_candidates(facts, roles, rules):
+    routes = {r["id"]: r for r in facts["routes"]}
+    paths = {s["id"]: s["path"] for s in facts["screens"]}
+    out = []
+    for m in roles.get("mismatches") or []:
+        route, spath = routes.get(m["endpoint"]), paths.get(m["screen"])
+        if route is None or spath is None:
+            continue
+        text = (f"Screen {spath} can be opened by role {', '.join(m['refused_roles'])} but the endpoint it calls "
+                f"({_label(route)}) refuses {', '.join(m['refused_roles'])}.")
+        srcs = [(roles["screens"].get(m["screen"]) or {}).get("source"),
+                (roles["endpoints"].get(m["endpoint"]) or {}).get("source")]
+        out.append(_cand("mismatch", {"type": "screen", "id": m["screen"], "label": f"screen {spath}"}, text, m, srcs,
+                         ["needs a decision: " + m.get("detail", "")], words(spath) + words(route["path"]),
+                         _role_words(m["refused_roles"])))
+    for m in rules.get("mismatches") or []:
+        route, spath = routes.get(m["endpoint"]), paths.get(m["screen"])
+        if route is None or spath is None:
+            continue
+        text = (f"The form on screen {spath} allows {m['form_value']} ({m['kind']}) in {m['field']} but "
+                f"{_label(route)} allows {m['endpoint_value']}.")
+        out.append(_cand("mismatch", {"type": "screen", "id": m["screen"], "label": f"screen {spath}"}, text, m,
+                         [m["form_source"], m["endpoint_source"]],
+                         ["needs a decision: fields are matched by exact name across the endpoints joined to the screen"],
+                         words(spath) + words(route["path"]) + words(m["field"])))
+    return out
+
+
+def build_bank(facts, roles, rules, errors, cap=MAX_CANDIDATES):
+    role_c, universe = role_candidates(facts, roles)
+    by_route = {}
+    for c in role_c + field_candidates(facts, rules) + error_candidates(facts, errors):
+        by_route.setdefault(c["subject"]["id"], []).append(c)
+    ordered = []
+    for route in facts["routes"]:
+        group = by_route.get(route["id"], [])
+        for kind in ("role", "role_refused", "field", "request_unread", "error"):
+            ordered += [c for c in group if c["kind"] == kind]
+    ordered += screen_candidates(facts, roles) + mismatch_candidates(facts, roles, rules)
+    truncated = len(ordered) > cap
+    ordered = ordered[:cap]
+    counters = {}
+    for c in ordered:
+        counters[c["kind"]] = counters.get(c["kind"], 0) + 1
+        c["id"] = f"C-{KIND_ID[c['kind']]}-{counters[c['kind']]:03d}"
+    return {"schema_version": 1, "tool_version": TOOL_VERSION, "candidates": ordered, "universe": universe,
+            "counts": dict(counters), "truncated": truncated,
+            "groups": [{"id": g["id"], "key": g["key"], "routes": len(g["routes"])}
+                       for g in groups.group_routes(facts["routes"])]}
