@@ -41,8 +41,13 @@ MAX_HASH_BYTES = 5_000_000
 
 def _git(repo, *args):
     """Read-only git (never takes optional locks). None when git is missing or the command fails."""
+    # Command-line -c settings override the repo's own .git/config, so a hostile config cannot make git run a command
+    # of its choosing (core.fsmonitor, a pager, hooks). Clean/smudge filters named in the config are the one thing
+    # `git status` can still run; repos whose .git/config you do not control are out of scope.
+    cmd = ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+           "-c", "core.pager=cat", "-C", str(repo), *args]
     try:
-        run = subprocess.run(["git", "--no-optional-locks", "-C", str(repo), *args], capture_output=True, timeout=60)
+        run = subprocess.run(cmd, capture_output=True, timeout=60, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     except (OSError, subprocess.SubprocessError):
         return None
     return run.stdout.decode("utf-8", "surrogateescape") if run.returncode == 0 else None
@@ -277,14 +282,14 @@ def status(repo, state_dir=None):
     counts = None
     if meta and isinstance(meta.get("counts"), dict):
         counts = {"routes": meta.get("routes"), "screens": meta.get("screens"), "candidates": meta["counts"]}
-    if not index:
+    if cache == "fresh":
+        next_step = "The facts are fresh." + ("" if index else " (The repo has no CodeGraph index now, so a rebuild would fail.)")
+    elif not index:
         next_step = f"There is no CodeGraph index: run `codegraph init` in {here.name} first."
     elif cache == "missing":
         next_step = "There is no cache yet: the next lookup builds it (seconds to a few minutes)."
-    elif cache == "stale":
-        next_step = "The facts are stale; the next lookup rebuilds them."
     else:
-        next_step = "The facts are fresh."
+        next_step = "The facts are stale; the next lookup rebuilds them."
     return {"repo": str(here), "index_present": index, "git": fp["git"], "cache": cache, "reasons": reasons,
             "head": meta.get("head") if meta else None, "built_at": meta.get("built_at") if meta else None,
             "codegraph_commit": meta.get("codegraph_commit") if meta else None,

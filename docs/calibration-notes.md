@@ -266,3 +266,7 @@ All four registration formats were checked on 2026-10-14 against the official pa
 
 - One request at a time; a first build can outlast a client's tool timeout (call `repo_status`, then `criteria_build` once).
 - Facts describe the files at the last build; `repo_status` states freshness, the commit and the age.
+
+### After the final review (slice 5)
+
+No critical finding. Fixed test-first: hostile repo directory names reached the client unescaped in some tool errors; `repo_status` (and the CLI) ran a command taken from the repo's own git config (`core.fsmonitor`), verified by a marker file, now closed with command-line overrides; `structuredContent` was not size-capped and text could be cut mid-line; a client closing stdout early gave a non-zero exit; an exception while handling a message could kill the server; batches of junk were amplified; a deleted working directory crashed start-up; `repo_status` advised `codegraph init` even for a fresh cache. Still open (documented): git clean/smudge filters named in a repo's own config can run during `git status`; the meta and bank can come from different builds in a race; the server does not honour cancellation.

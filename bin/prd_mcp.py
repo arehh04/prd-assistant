@@ -24,13 +24,26 @@ def main(argv=None):
     parser.add_argument("--allow-any-repo", action="store_true", help="do not restrict the repos that can be queried")
     parser.add_argument("--state-dir", help="where the facts are cached")
     args = parser.parse_args(argv)
-    roots, warnings = mcp_server.parse_roots(args.root, os.environ.get("PRD_MCP_ROOTS"), Path.cwd())
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        cwd = Path("/")
+        print("prd-mcp: the working directory no longer exists, so it is not used as a root", file=sys.stderr)
+    roots, warnings = mcp_server.parse_roots(args.root, os.environ.get("PRD_MCP_ROOTS"), cwd)
     for warning in warnings:
         print(warning, file=sys.stderr)
     if not roots and not args.allow_any_repo:
         print("prd-mcp: no usable root; every tool will answer with an error. Use --root DIR or PRD_MCP_ROOTS.", file=sys.stderr)
     config = mcp_server.Config(roots, args.allow_any_repo, args.state_dir)
-    return mcp_server.serve(sys.stdin.buffer, sys.stdout.buffer, config)
+    if sys.stdout is None or sys.stdin is None:
+        print("prd-mcp: stdin and stdout must be open", file=sys.stderr)
+        return 1
+    code = mcp_server.serve(sys.stdin.buffer, sys.stdout.buffer, config)
+    try:
+        sys.stdout.flush()
+    except (BrokenPipeError, ValueError):
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())    # the client left; do not fail at exit
+    return code
 
 
 if __name__ == "__main__":

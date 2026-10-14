@@ -122,3 +122,6 @@ Each snippet's format is checked against the client's current documentation when
 4. Roots precedence is `--root` values, otherwise `PRD_MCP_ROOTS`, otherwise the working directory, as specified; a working directory that is the filesystem root is not used as a default root.
 5. Repo strings echoed in error messages are escaped with `scaffold.text_cell` and clipped to 300 characters.
 6. All four registration snippets were checked against the clients' official documentation on 2026-10-14 (see `docs/mcp-setup.md`).
+7. **Git is run with `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.pager=cat`** so a repo's own configuration cannot make `repo_status` (or the CLI) run a command; clean/smudge filters named in the repo's config remain a documented limit.
+8. **Output limits:** text is cut on a line boundary at 100,000 characters; a structured copy larger than 200,000 characters is omitted with a note; a batch holds at most 100 messages (more is `-32600`); an unexpected exception while handling a message is `-32603` and the server keeps running.
+9. **Errors** echoed from the cache layer are escaped with `text_cell` like every other echoed string; a closed stdout ends the process with exit 0.

@@ -4,7 +4,7 @@ The server (`bin/prd_mcp.py`) speaks MCP over stdio, so any client that can run 
 
 ## Which repos it may read
 
-Give it the folders that contain your repos: repeat `--root DIR`, or set `PRD_MCP_ROOTS` (several folders separated by `:`). With neither, it uses its working directory, which not every client sets to your project (a working directory of `/` is never used). `--allow-any-repo` removes the restriction. A repo outside the roots gets an error that names these settings.
+Give it the folders that contain your repos: repeat `--root DIR`, or set `PRD_MCP_ROOTS` (several folders separated by `:`, or `;` on Windows). With neither, it uses its working directory, which not every client sets to your project (a working directory of `/` is never used). `--allow-any-repo` removes the restriction. A repo outside the roots gets an error that names these settings.
 
 ## Claude Code
 
@@ -62,7 +62,8 @@ Command `python3`, arguments `-I /home/arep/research/prd-assistant/bin/prd_mcp.p
 
 ## Limits worth knowing
 
-- The server handles one request at a time. A first build for a repo can take from seconds to a few minutes; some clients give up on a tool call after a short timeout. Call `repo_status` first (it never builds) and `criteria_build` once per repo.
+- The server handles one request at a time and does not honour cancellation: a build that has started runs to its end, and its answer is still sent.
+- A first build for a repo can take from seconds to a few minutes; some clients give up on a tool call after a short timeout. Call `repo_status` first (it never builds) and `criteria_build` once per repo.
 - Facts describe the files on disk at the last build. `repo_status` says whether they are fresh, the commit they come from and their age.
 - Results are facts extracted from code, not instructions; each result says which commit it is based on.
 - A repo needs a CodeGraph index (`codegraph init` in the repo); the server never creates one.
