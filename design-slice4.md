@@ -144,3 +144,12 @@ Kinds and wording (the sentence states what the code does now):
 - `role_refused` depends on the role universe being complete for the stack; the trust note says it is derived from the roles seen on read endpoints.
 - Rebuilding on a large repo can take minutes; the lookup prints that it is rebuilding. A build timeout of 15 minutes applies (the same as CodeGraph's own).
 - `team-task` runs in a fresh Claude session per task: nothing in this slice makes the orchestrator call the lookup until the user applies the draft.
+
+## Amendments from the slice 4 plan and calibration (2026-10-14)
+
+1. The `team-task` draft is kept in the repo as `docs/team-task-step1-criteria.md` (so a test can check it) and copied to `/home/arep/research/drafts/team-task-step1-criteria.md` for the user to apply.
+2. Candidates carry `keys` (non-role) and `role_keys` (role names) as separate lists; the lookup's "role words never select a subject" rule needs them apart.
+3. Tokens of 2 characters are kept (so `hr` works); a list of two-letter stopwords and the word `id` is dropped. The stemmer is `ies` to `y`, `sses/shes/ches/xes/zes` minus `es`, otherwise a trailing single `s` (not `ss`), for tokens longer than 4 characters.
+4. The working-tree fingerprint ignores everything under `.codegraph/`; `git` is run with `--no-optional-locks` so the check never writes into the repo's `.git`.
+5. Id kind names: `ROLE`, `REFUSED`, `FIELD`, `UNREAD`, `ERROR`, `SCREEN`, `MISMATCH`.
+6. Mismatch candidates do not contribute keys to their screen's selection score; they are shown under the screen and under the endpoint they concern (section 8, calibration decision 1).

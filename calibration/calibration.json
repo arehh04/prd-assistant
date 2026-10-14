@@ -83,6 +83,20 @@
           "total": 17
         },
         "verdict": "WARN"
+      },
+      "expect_criteria": {
+        "counts": {
+          "role": 66,
+          "field": 126,
+          "error": 49,
+          "request_unread": 15,
+          "role_refused": 13,
+          "screen_roles": 9
+        },
+        "universe": {
+          "laravel": 2
+        },
+        "truncated": false
       }
     },
     "rms-noadapter": {
@@ -179,6 +193,20 @@
           "total": 15
         },
         "verdict": "WARN"
+      },
+      "expect_criteria": {
+        "counts": {
+          "role": 78,
+          "role_refused": 67,
+          "field": 114,
+          "request_unread": 4,
+          "error": 67,
+          "screen_roles": 13
+        },
+        "universe": {
+          "nestjs": 5
+        },
+        "truncated": false
       }
     }
   }

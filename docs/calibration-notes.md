@@ -199,3 +199,35 @@ The fresh whole-branch review found, and these fixes closed (each with a failing
 - `dev-prepare` and `guide-prepare` now remove their older outputs before any validation, so an early failure cannot leave a guide that `assemble` accepts.
 - Quadratic scans were bounded (a 217 KB nav file took 62 s, a 670 KB constants file 62 s); Laravel route groups are computed once per routes file.
 - `Annotated[User, Depends(get_user)]` no longer produces body fields; NestJS `@Body(new ValidationPipe())`, `@Req()` and other unrecognised parameter decorators are `not_read` (two Urus upload endpoints moved from "read" to "not read"); `z.coerce.x()`, exclusive bounds and unparseable zod chains are handled; an unknown status renders as `?`; "undeclared" is worded as "found no declaration" instead of a bare "open".
+
+
+## Slice 4 (criteria candidates for team-task), 2026-10-14
+
+Commands: `python3 -I bin/prd_criteria.py build <repo> --state-dir ~/research/prd-state`, then `lookup <repo> "<task>" --state-dir ~/research/prd-state`. A full build (slice 1 facts, slice 3b facts, bank) takes 1 to 3 seconds on these three repos.
+
+| Repo | Routes | Screens | Candidates | By kind | Role universe |
+|---|---|---|---|---|---|
+| room-management (Laravel + Vue) | 66 | 17 | 278 | error 49 / field 126 / request_unread 15 / role 66 / role_refused 13 / screen_roles 9 | laravel 2 |
+| Urus (NestJS + React) | 78 | 15 | 343 | error 67 / field 114 / request_unread 4 / role 78 / role_refused 67 / screen_roles 13 | nestjs 5 |
+| tis (FastAPI + React), not golden | 137 | 21 | 866 | error 434 / field 268 / request_unread 2 / role 137 / role_refused 25 | fastapi 2 |
+
+### Task sentences tried against the real code
+
+| Repo and sentence | What the lookup returned | Verdict |
+|---|---|---|
+| Urus "let managers approve payroll" | first subject `POST /api/v1/payroll/:id/approve`: allowed for `FINANCE, ADMIN`; `MANAGER`, `HR`, `WORKER` shown as refused (derived, with the trust note naming the universe) | exact; the derived refusal of `MANAGER` is the criterion the task needs to change |
+| tis "only admins can delete users" | first subject `DELETE /api/v1/users/{user_id}`: allowed for `admin, developer`; messages 404 'User not found', 403 'Admin access required', 401 from the guard | exact |
+| room-management "let branch admins deactivate a house" | `POST /branches/{branch}/deactivate` (super_admin only; `branch_admin` refused, derived) ranks first, `POST /houses/{house}/deactivate` (`super_admin, branch_admin`) second | both present; "branch" is a path word and a role word, so the branch endpoint ties on the literal words |
+| room-management "tenants can see their own rooms" | tenancy and room endpoints for admins; the tenant self-service group is empty in the code (`role:tenant` group has no routes yet) | correct: the code has nothing for this, and the output shows it |
+| Urus "reject receipt scanning for large files" / "scan a receipt with ocr" | `POST /ocr/receipt` is among the top three subjects for both; first for "ocr", tied for "scanning" | works; "scanning" is not reduced to "scan" |
+
+### Decisions found by calibration
+
+1. **A mismatch no longer makes its screen look like a match for the endpoint's words.** The plan's own ranking test showed `screen /payroll` outranking `POST /api/payroll/calculate` for "let finance managers calculate payroll", because the screen's mismatch candidates carry the endpoint's path words. A screen is now scored by its own path and roles only, and a mismatch is listed under the screen and under the endpoint it concerns.
+
+### Known limitations
+
+- Matching is literal after a light plural stem: "scanning" does not match "scan", "pay run" does not match "payroll". A word that is both a path word and a role word (`branch`) selects by the path.
+- Ids (`C-ROLE-014`) are only valid for the commit printed beside them.
+- Derived refusals depend on the role universe (the roles seen on read endpoints of the same stack). A stack where one role never appears on a read endpoint cannot be refused it.
+- Typed API clients leave screens unjoined (0 of 15 on Urus), so mismatch candidates are rare there.
